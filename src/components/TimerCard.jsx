@@ -16,6 +16,9 @@ import { createPortal } from "react-dom";
 
 
 const VOLUME = 0.85;
+// GitHub Pages（/repo-name/ 配下）でも dev（/）でも同じ書き方で動くようにする
+const BASE_URL = (import.meta && import.meta.env && import.meta.env.BASE_URL) ? import.meta.env.BASE_URL : "/";
+const withBase = (p) => `${BASE_URL}${String(p).replace(/^\/+/, "")}`;
 // 個別音量（AudioLibraryModal由来）を反映する補助
 const getVolFor = (rawId) => {
   try {
@@ -218,11 +221,11 @@ export default function TimerCard({ index = 0, storageId = null, disableLongPres
       a.volume = VOLUME * getVolFor(id);
       // iPad 安定優先：wav → mp3
       const wav = document.createElement("source");
-      wav.src = `/sounds/alarm.wav?id=${Date.now()}`;
+      wav.src = withBase(`sounds/alarm.wav?id=${Date.now()}`);
       wav.type = "audio/wav";
       a.appendChild(wav);
       const mp3 = document.createElement("source");
-      mp3.src = `/sounds/alarm.mp3?id=${Date.now()}`;
+      mp3.src = withBase(`sounds/alarm.mp3?id=${Date.now()}`);
       mp3.type = "audio/mpeg";
       a.appendChild(mp3);
       return a;
@@ -251,10 +254,10 @@ export default function TimerCard({ index = 0, storageId = null, disableLongPres
 
     // iPad 安定優先：wav → mp3 の順で読む
     try {
-      alarmBufRef.current = await fetchBuf(`/sounds/alarm8.wav?id=${Date.now()}`);
+      alarmBufRef.current = await fetchBuf(withBase(`sounds/alarm8.wav?id=${Date.now()}`));
     } catch {
       try {
-        alarmBufRef.current = await fetchBuf(`/sounds/alarm8.mp3?id=${Date.now()}`);
+        alarmBufRef.current = await fetchBuf(withBase(`sounds/alarm8.mp3?id=${Date.now()}`));
       } catch {}
     }
 
@@ -373,11 +376,11 @@ export default function TimerCard({ index = 0, storageId = null, disableLongPres
     // alarm / alarm8 は wav → mp3 の順（iPad安定優先）
     const fileId = mappedId === "alarm8" ? "alarm8" : mappedId === "beep3" ? "beep3" : "alarm";
     const wav = document.createElement("source");
-    wav.src = `/sounds/${fileId}.wav?id=${Date.now()}`;
+    wav.src = withBase(`sounds/${fileId}.wav?id=${Date.now()}`);
     wav.type = "audio/wav";
     a.appendChild(wav);
     const mp3 = document.createElement("source");
-    mp3.src = `/sounds/${fileId}.mp3?id=${Date.now()}`;
+    mp3.src = withBase(`sounds/${fileId}.mp3?id=${Date.now()}`);
     mp3.type = "audio/mpeg";
     a.appendChild(mp3);
 
@@ -769,7 +772,7 @@ export default function TimerCard({ index = 0, storageId = null, disableLongPres
     <>
       {cardHidden ? (
         <div {...longPressHandlers} style={placeholderStyle}>
-          <img src="/icons/gear64.svg" width={32} height={32} alt="設定" />
+          <img src={withBase("icons/gear64.svg")} width={32} height={32} alt="設定" />
         </div>
       ) : (
         <div style={cardStyle} onClick={() => finished && reset()} onContextMenu={(e) => e.preventDefault()}>
@@ -832,7 +835,7 @@ export default function TimerCard({ index = 0, storageId = null, disableLongPres
                   aria-label="設定"
                   title="設定"
                 >
-                  <img src="/icons/gear64.svg" width={16} height={16} alt="設定" />
+                  <img src={withBase("icons/gear64.svg")} width={16} height={16} alt="設定" />
                 </button>
 
                 {/* Row2: 4 5 6 クリア */}
@@ -930,7 +933,7 @@ export default function TimerCard({ index = 0, storageId = null, disableLongPres
                 title="設定"
                 style={{ marginLeft: "auto", border: "1px solid #666", borderRadius: 6, background: "#fff", padding: "4px 8px", display: "flex", alignItems: "center", justifyContent: "center" }}
               >
-                <img src="/icons/gear64.svg" width={16} height={16} alt="設定" />
+                <img src={withBase("icons/gear64.svg")} width={16} height={16} alt="設定" />
               </button>
             </div>
           )}
