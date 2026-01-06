@@ -706,7 +706,7 @@ export default function TimerCard({ index = 0, storageId = null, disableLongPres
             }, loopSec * 1000 + 50);
 
             // --- ループ中に音声を挟む（無音なら挟まない／ミュートもしない） ---
-            const voiceIdRaw = normalizeSoundId(modeCfg.endInsertVoiceSound || "");
+            const voiceIdRaw = normalizeSoundId(coerceSound(modeCfg.endInsertVoiceSound) || "");
             const voiceId = (voiceIdRaw && voiceIdRaw !== "none") ? voiceIdRaw : "";
 
             if (voiceId) {
