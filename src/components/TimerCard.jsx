@@ -715,6 +715,18 @@ export default function TimerCard({ index = 0, storageId = null, disableLongPres
 
               // fire-and-forget（ここは setInterval の中なので await しない）
               (async () => {
+                // iPad Safari: 直前の通知音が鳴っていると、終了時の「ピピピッ→第2音声」が無音になることがある。
+                // 終了シーケンスに入る前に、鳴っている音（通知など）を一旦止めてから挟み込みを再生する。
+                try {
+                  playingRef.current.forEach((a) => {
+                    try {
+                      a.loop = false;
+                      a.pause();
+                      a.currentTime = 0;
+                    } catch {}
+                  });
+                  playingRef.current = [];
+                } catch {}
                 const muteSecRaw = Number(modeCfg.endInsertMuteSec ?? 2);
                 const clamped = Number.isFinite(muteSecRaw) ? Math.min(5, Math.max(0.5, muteSecRaw)) : 2;
                 const muteSec = Math.round(clamped * 2) / 2; // 0.5刻み
