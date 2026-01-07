@@ -321,7 +321,7 @@ export default function TimerCard({ index = 0, storageId = null, disableLongPres
     // iPad運用版：ファイル再生で統一（WebAudio decode を避ける）
     // alarm/alarm8 と、起動時のピッ（builtin-beep）は /sounds 音源へ寄せる
     // ただし「挟み込み前の短いピピピ（builtin-beep3）」はミュート制御の都合で one‑shot を使う
-    if (id === "alarm" || id === "alarm8" || id === "builtin-beep" || id === "builtin-beep3") return false;
+    if (id === "alarm" || id === "alarm8") return false;
 
     const vol = VOLUME * getVolFor(id);
     const playBufOnce = (buf, when = ctx.currentTime) => {
