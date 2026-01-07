@@ -288,10 +288,30 @@ export default function TimerCard({ index = 0, storageId = null, disableLongPres
   };
 
   const loadBeep3Buffer = async () => {
-    // iPad運用版：beep3 ファイルの decode はやめる（存在しない/形式差で EncodingError になりやすい）
-    // beep3 は playBuiltinOneShot() 側で単発beepを4回スケジュールして代替する
-    beep3BufRef.current = null;
-    return null;
+    if (beep3BufRef.current) return beep3BufRef.current;
+    const ctx = await ensureAudioCtx();
+    if (!ctx) return null;
+
+    const fetchBuf = async (url) => {
+      const r = await fetch(url);
+      if (!r.ok) throw new Error(`fetch fail: ${r.status}`);
+      const ab = await r.arrayBuffer();
+      return await new Promise((res, rej) => ctx.decodeAudioData(ab, res, rej));
+    };
+
+    // まず wav → ダメなら mp3（GitHub Pages / iPad 安定優先）
+    try {
+      beep3BufRef.current = await fetchBuf(withBase(`sounds/beep3.wav?id=${Date.now()}`));
+      return beep3BufRef.current;
+    } catch {
+      try {
+        beep3BufRef.current = await fetchBuf(withBase(`sounds/beep3.mp3?id=${Date.now()}`));
+        return beep3BufRef.current;
+      } catch {
+        beep3BufRef.current = null;
+        return null;
+      }
+    }
   };
 
   // HTMLAudio 向け “絶対鳴る” データURL（1kHz 120msのWAV）を生成
@@ -320,8 +340,8 @@ export default function TimerCard({ index = 0, storageId = null, disableLongPres
 
     // iPad運用版：ファイル再生で統一（WebAudio decode を避ける）
     // alarm/alarm8 と、起動時のピッ（builtin-beep）は /sounds 音源へ寄せる
-    // ただし「挟み込み前の短いピピピ（builtin-beep3）」はミュート制御の都合で one‑shot を使う
-    if (id === "alarm" || id === "alarm8") return false;
+    // ただし「挟み込み前の短いピピピ（builtin-beep3）」は WebAudio(one‑shot) で鳴らす（iPadの無音化回避）
+    if (id === "alarm" || id === "alarm8" || id === "builtin-beep") return false;
 
     const vol = VOLUME * getVolFor(id);
     const playBufOnce = (buf, when = ctx.currentTime) => {
