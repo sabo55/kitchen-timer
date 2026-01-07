@@ -682,15 +682,15 @@ const saveAndClose = () => {
         {/* 通知＆背景色（10キーモードでは非表示） */}
         {!tenKeyEnabled && (
           <div style={CSS.section}>
-            <Field label="通知（行数）">
+            <Field label="通知（背景色）">
               <select
                 style={{ ...selectStyle, marginLeft: 12 }}
                 value={curr.nbRows.length}
                 onChange={(e) => setNbRowsCount(Number(e.target.value))}
               >
-                {[1, 2, 3].map((k) => (
+                {[0, 1, 2, 3].map((k) => (
                   <option key={k} value={k}>
-                    {k} か所
+                    {k}か所
                   </option>
                 ))}
               </select>
