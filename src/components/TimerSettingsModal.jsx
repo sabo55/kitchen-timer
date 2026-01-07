@@ -660,11 +660,11 @@ const saveAndClose = () => {
               onChange={(e) => patchMode({ timerName: e.target.value })}
             />
           </Field>
-          <Field label="ボタン表示名（表示は4文字まで）">
+          <Field label="切替ボタン名（1文字まで）">
             <input
               style={{ ...CSS.input, maxWidth: 200 }}
               value={curr.buttonLabel}
-              maxLength={32}
+              maxLength={1}
               onChange={(e) => patchMode({ buttonLabel: e.target.value })}
             />
           </Field>
