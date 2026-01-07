@@ -150,6 +150,7 @@ export default function TimerCard({ index = 0, storageId = null, disableLongPres
   const alarmBufRef = useRef(null);
   const beepBufRef = useRef(null);
   const beep3BufRef = useRef(null);
+  const soundBufCacheRef = useRef(new Map());
   const gaplessSrcsRef = useRef([]);
 
   const loadAudioLib = () => { try { return JSON.parse(localStorage.getItem("timerBoard_sounds_v1") || "[]"); } catch { return []; } };
@@ -462,6 +463,7 @@ export default function TimerCard({ index = 0, storageId = null, disableLongPres
       await sleep(ms);
       return;
     }
+
     // ビルトイン（alarm8 はここでは扱わない）
     if (BUILTINS.has(id)) {
       if (id !== "alarm8") {
@@ -471,24 +473,97 @@ export default function TimerCard({ index = 0, storageId = null, disableLongPres
       return;
     }
 
+    // --- まず WebAudio（iPad Safari で HTMLAudio がミュート/拒否されるのを回避）---
+    try {
+      const ctx = await ensureAudioCtx();
+      if (ctx) {
+        const cache = soundBufCacheRef.current;
+        let buf = cache.get(id);
+
+        if (!buf && !cache.has(id)) {
+          const list = loadAudioLib() || [];
+          const rec = Array.isArray(list)
+            ? list.find((x) => x && typeof x.id === "string" && x.id.trim().toLowerCase() === id.toLowerCase())
+            : null;
+
+          const toArrayBuffer = async () => {
+            if (!rec) return null;
+
+            // 1) data:URL
+            const dataUrl = rec.dataUrl || (typeof rec.fileUrl === "string" && rec.fileUrl.startsWith("data:") && rec.fileUrl);
+            if (dataUrl) {
+              const r = await fetch(dataUrl);
+              if (!r.ok) return null;
+              return await r.arrayBuffer();
+            }
+
+            // 2) base64
+            if (rec.base64) {
+              const bin = atob(rec.base64);
+              const bytes = new Uint8Array(bin.length);
+              for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+              return bytes.buffer;
+            }
+
+            // 3) URL
+            let direct = rec.url || rec.fileUrl;
+            if (direct && typeof direct === "string" && !direct.startsWith("blob:")) {
+              // GitHub Pages（/repo/）でも動くように、同一オリジン相対は base を付ける
+              if (direct.startsWith("/")) direct = withBase(direct);
+              else if (!/^https?:|data:|blob:/i.test(direct)) direct = withBase(direct);
+
+              const r = await fetch(direct);
+              if (!r.ok) return null;
+              return await r.arrayBuffer();
+            }
+
+            // 4) broken は WebAudio では触らない（後段の HTMLAudio 側に任せる）
+            return null;
+          };
+
+          const ab = await toArrayBuffer();
+          if (ab) {
+            try {
+              buf = await new Promise((res, rej) => ctx.decodeAudioData(ab, res, rej));
+            } catch {
+              buf = null;
+            }
+          } else {
+            buf = null;
+          }
+          cache.set(id, buf);
+        }
+
+        if (buf) {
+          const src = ctx.createBufferSource();
+          src.buffer = buf;
+          const g = ctx.createGain();
+          g.gain.value = VOLUME * getVolFor(id);
+          src.connect(g);
+          g.connect(ctx.destination);
+          try { src.start(0); } catch {}
+          await sleep(ms);
+          try { src.stop(0); } catch {}
+          return;
+        }
+      }
+    } catch {
+      // WebAudio で失敗したら HTMLAudio に落とす
+    }
+
+    // --- HTMLAudio フォールバック ---
     const a = getAudio(id);
     if (!a) {
-      // 再生できないときも時間だけ消費して終了
       await sleep(ms);
       return;
     }
 
     a.volume = VOLUME * getVolFor(id);
-    try {
-      a.currentTime = 0;
-    } catch {}
+    try { a.currentTime = 0; } catch {}
 
     playingRef.current.push(a);
-    try {
-      await a.play();
-    } catch {}
+    try { await a.play(); } catch {}
 
-    // 指定時間だけ鳴らす（長い音声は途中で止まる。短い音声は無音時間になる）
     await sleep(ms);
 
     try {
@@ -498,13 +573,11 @@ export default function TimerCard({ index = 0, storageId = null, disableLongPres
 
     playingRef.current = playingRef.current.filter((x) => x !== a);
     if (a.dataset && a.dataset.tempUrl) {
-      try {
-        URL.revokeObjectURL(a.dataset.tempUrl);
-      } catch {}
-    }
-  };
+      try { URL.revokeObjectURL(a.dataset.tempUrl); } catch {}
+      }
+      };
 
-  const playGaplessAlarm = async (fadeMs = 0) => {
+   const playGaplessAlarm  = async (fadeMs = 0) => {
     try {
       const ctx = await ensureAudioCtx();
       if (!ctx) return false;
