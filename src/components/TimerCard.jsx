@@ -139,6 +139,8 @@ export default function TimerCard({ index = 0, storageId = null, disableLongPres
   useEffect(() => { try { localStorage.setItem(lastModeKey, String(modeIdx)); } catch {} }, [modeIdx, lastModeKey]);
 
     const playingRef = useRef([]);
+  // 終了シーケンス（ピピピッ→第2音声→alarm8戻し）を途中で止められるようにするキャンセル用トークン
+  const stopSeqTokenRef = useRef(0);
   const stopLoopTRef = useRef(null);
   const loopDeadlineRef = useRef(null);
   const loopWatchRef = useRef(null);
@@ -523,6 +525,8 @@ export default function TimerCard({ index = 0, storageId = null, disableLongPres
   const stopGaplessAlarm = () => { const list = gaplessSrcsRef.current; if (list && list.length) { list.forEach((src) => { try { src.stop(0); } catch {} }); gaplessSrcsRef.current = []; } };
 
   const cleanAllAudio = () => {
+    // 進行中の終了シーケンスをキャンセル
+    stopSeqTokenRef.current += 1;
     playingRef.current.forEach((s) => { s.loop = false; s.pause(); s.currentTime = 0; }); playingRef.current = [];
     stopGaplessAlarm();
     if (stopLoopTRef.current) { clearTimeout(stopLoopTRef.current); stopLoopTRef.current = null; }
@@ -715,6 +719,10 @@ export default function TimerCard({ index = 0, storageId = null, disableLongPres
 
               // fire-and-forget（ここは setInterval の中なので await しない）
               (async () => {
+                // このシーケンス開始。途中でリセット/停止されたら中断できるようにトークンを固定
+                const seqToken = (stopSeqTokenRef.current += 1);
+                const cancelled = () => seqToken !== stopSeqTokenRef.current;
+
                 // iPad Safari: 直前の通知音が鳴っていると、終了時の「ピピピッ→第2音声」が無音になることがある。
                 // 終了シーケンスに入る前に、鳴っている音（通知など）を一旦止めてから挟み込みを再生する。
                 try {
@@ -734,12 +742,16 @@ export default function TimerCard({ index = 0, storageId = null, disableLongPres
 
                 // まず「ピピピッ」を1秒（体感固定）
                 // 挟み込み前の短い合図（ここは one‑shot で確実に短く鳴らす）
+                if (cancelled()) return;
                 await playByIdForDuration("builtin-beep3", 1000);
+                if (cancelled()) return;
 
                 // 次に「音声」：指定秒数だけ鳴らして止める（その間は alarm8 をミュート）
                 await playByIdForDuration(voiceId, muteMs);
+                if (cancelled()) return;
 
                 // 残り時間があれば alarm8 ループへ戻す
+                if (cancelled()) return;
                 if (loopDeadlineRef.current && Date.now() < loopDeadlineRef.current) {
                   stopGaplessAlarm();
                   playGaplessAlarm();
