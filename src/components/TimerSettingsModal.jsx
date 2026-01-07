@@ -94,7 +94,7 @@ const CSS = {
   },
 };
 const selectStyle = { ...CSS.input, width: "auto" };
-const SOUND_SELECTED_WIDTH = 280;
+const SOUND_SELECTED_WIDTH = 260; // iPadでラベルが潰れにくい幅
 
 // header / tabs / buttons の共通スタイルは helpers から import 済み
 /* ───────── component ───────── */
@@ -284,10 +284,15 @@ const RadioSound = ({ list, value, onChange, name }) => {
         <input type="radio" name={name} value={o.id} checked={isChecked} onChange={() => onChange(o.id)} />
         <span
           style={{
-            whiteSpace: "nowrap",
+            // 2文字すら潰れるのを防ぐ：折り返し＋2行まで表示
+            display: "-webkit-box",
+            WebkitBoxOrient: "vertical",
+            WebkitLineClamp: 2,
             overflow: "hidden",
-            textOverflow: "ellipsis",
-            fontSize: "0.80rem",
+            whiteSpace: "normal",
+            wordBreak: "break-word",
+            lineHeight: 1.15,
+            fontSize: "0.9rem",
             opacity: isSilent ? 0.9 : 1,
           }}
         >
@@ -300,7 +305,14 @@ const RadioSound = ({ list, value, onChange, name }) => {
   const RowBreak = () => <div style={{ gridColumn: "1 / -1", height: 6 }} />;
 
   return (
-    <div style={{ display: "grid", gridTemplateColumns: "repeat(4, minmax(0, 1fr))", gap: 8 }}>
+    <div
+      style={{
+        // iPadで横に潰れず、自然に改行される可変カラム
+        display: "grid",
+        gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))",
+        gap: 8,
+      }}
+    >
       {basic.map(Item)}
       <RowBreak />
       {presets.map(Item)}
@@ -332,7 +344,9 @@ const SoundChoice = ({ list, value, onChange, title }) => {
         <div
           style={{
             ...CSS.input,
-            flex: `0 0 ${SOUND_SELECTED_WIDTH}px`,
+            // 右端で潰れて「2文字も入らない」を防ぐ：縮みすぎない & はみ出さない
+            flex: "1 1 auto",
+            minWidth: 180,
             maxWidth: SOUND_SELECTED_WIDTH,
             background: "#f9f9f9",
           }}
@@ -342,7 +356,7 @@ const SoundChoice = ({ list, value, onChange, title }) => {
 
         <button
           type="button"
-          style={BTN_PRIMARY}
+          style={{ ...BTN_PRIMARY, minWidth: 64, whiteSpace: "nowrap", flex: "0 0 auto" }}
           onClick={() => setOpenRadioKey((k) => (k === radioKey ? null : radioKey))}
           aria-expanded={openRadioKey === radioKey}
           aria-controls={`radio_${radioKey}`}
@@ -356,8 +370,9 @@ const SoundChoice = ({ list, value, onChange, title }) => {
           id={`radio_${radioKey}`}
           style={{
             position: "absolute",
-            left: -220,
-            right: -20,
+            // モーダル内に収める（右端/左端で切れない）
+            left: 0,
+            right: 0,
             top: "100%",
             marginTop: 8,
             zIndex: 20,
@@ -368,7 +383,7 @@ const SoundChoice = ({ list, value, onChange, title }) => {
             padding: 12,
             maxHeight: 320,
             overflowY: "auto",
-            maxWidth: "calc(100vw - 48px)",
+            maxWidth: "100%" ,
           }}
         >
           <RadioSound
