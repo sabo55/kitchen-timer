@@ -562,10 +562,22 @@ export function playSoundById(id: string, volume = 1): Promise<void> {
 
     try {
       const audio = new Audio(src);
+
       audio.volume = Math.max(0, Math.min(1, volume ?? 1));
-      audio.onended = () => resolve();
+
+      const done = () => {
+        audio.onended = null;
+        audio.onerror = null;
+        resolve();
+      };
+
+      audio.onended = done;
+      audio.onerror = done;
+
       // 再生開始。エラーは握りつぶし（自動再生制限など）
-      void audio.play().catch(() => resolve());
+      void audio.play().then(() => {
+        // play開始できた場合、終了は onended/onerror が拾う
+      }).catch(() => done());
     } catch {
       resolve();
     }
