@@ -151,7 +151,7 @@ export default function TimerCard({ index = 0, storageId = null, disableLongPres
   const beepBufRef = useRef(null);
   const beep3BufRef = useRef(null);
   const soundBufCacheRef = useRef(new Map());
-  
+  const gaplessSrcsRef = useRef([]);
 
   const loadAudioLib = () => { try { return JSON.parse(localStorage.getItem("timerBoard_sounds_v1") || "[]"); } catch { return []; } };
 
@@ -575,9 +575,9 @@ export default function TimerCard({ index = 0, storageId = null, disableLongPres
     if (a.dataset && a.dataset.tempUrl) {
       try { URL.revokeObjectURL(a.dataset.tempUrl); } catch {}
       }
-      };
+     };
 
-   const playGaplessAlarm  = async (fadeMs = 0) => {
+const playGaplessAlarm  = async (fadeMs = 0) => {
     try {
       const ctx = await ensureAudioCtx();
       if (!ctx) return false;
