@@ -151,7 +151,7 @@ export default function TimerCard({ index = 0, storageId = null, disableLongPres
   const beepBufRef = useRef(null);
   const beep3BufRef = useRef(null);
   const soundBufCacheRef = useRef(new Map());
-  const gaplessSrcsRef = useRef([]);
+  
 
   const loadAudioLib = () => { try { return JSON.parse(localStorage.getItem("timerBoard_sounds_v1") || "[]"); } catch { return []; } };
 
