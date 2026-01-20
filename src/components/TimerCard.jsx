@@ -2,12 +2,9 @@
 
 import React, { useState, useRef, useEffect } from "react";
 import {
-  START_LG, RESET_LG, START_SM, RESET_SM,
-  KEYPAD_BTN, KEYPAD_BTN_CLEAR, KEYPAD_ICON_BTN,
-  MODE_BTN, secToMMSS, NOTIFY_BTN,
-  TIMER_COLORS as COLORS, NB_COLOR_MAP,
-  useLongPress, extractId, normalizeSoundId,
-  soundKey, sameId, coerceSound, sanitizeMode,
+  START_LG, RESET_LG, START_SM, RESET_SM,  KEYPAD_BTN, KEYPAD_BTN_CLEAR, KEYPAD_ICON_BTN,
+  MODE_BTN, secToMMSS, NOTIFY_BTN,  TIMER_COLORS as COLORS, NB_COLOR_MAP,
+  useLongPress, extractId, normalizeSoundId,  soundKey, sameId, coerceSound, sanitizeMode,
   loopSeconds, isDefaultLikeName, 
 } from "./helpers";
 
@@ -92,8 +89,6 @@ export default function TimerCard({ index = 0, storageId = null, disableLongPres
   const modalRoot =
   (typeof document !== "undefined" &&
     (document.getElementById("modal-root") || document.body)) || null;
-
-  // --- state moved up to avoid 'running' before initialization ---
 
   // audio library: TimerBoard が保存している localStorage を参照（なければ空配列）
 
@@ -194,7 +189,6 @@ export default function TimerCard({ index = 0, storageId = null, disableLongPres
       const src = document.createElement("source"); src.src = dataUrl; src.type = rec.mime || "audio/mpeg"; a.appendChild(src);
       return a;
     }
-
     // 2) base64 を Blob 化
     if (rec.base64) {
       try {
@@ -216,7 +210,6 @@ export default function TimerCard({ index = 0, storageId = null, disableLongPres
       const src = document.createElement("source"); src.src = direct; src.type = rec.mime || "audio/mpeg"; a.appendChild(src);
       return a;
     }
-
     // 4) 壊れている印（旧データ）→ フォールバック
     if (rec.broken) {
       const a = document.createElement("audio");
