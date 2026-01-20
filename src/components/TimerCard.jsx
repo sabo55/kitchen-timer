@@ -133,6 +133,78 @@ export default function TimerCard({ index = 0, storageId = null, disableLongPres
     const wb = typeof opts.withBase === "function" ? opts.withBase : (p) => p;
     const playing = [];
     let alarm8Loop = null;
+
+    // iOS対策：AudioContext を維持（無音が続くと鳴らなくなるのを回避）
+    const audioCtxRef = { current: null };
+    const bufCache = new Map();
+    let keepAliveT = null;
+
+    const ensureCtx = async () => {
+      const Ctx = (typeof window !== "undefined" && (window.AudioContext || window.webkitAudioContext)) || null;
+      if (!Ctx) return null;
+      if (!audioCtxRef.current) audioCtxRef.current = new Ctx();
+      if (audioCtxRef.current.state === "suspended") {
+        try { await audioCtxRef.current.resume(); } catch {}
+      }
+      // keep-alive（4秒周期。5秒無音で死ぬ現象の回避）
+      if (!keepAliveT) {
+        keepAliveT = setInterval(() => {
+          try {
+            const ctx = audioCtxRef.current;
+            if (!ctx) return;
+            if (ctx.state === "suspended") { ctx.resume().catch(() => {}); return; }
+            // 極小音のワンショット（ほぼ無音）
+            const g = ctx.createGain();
+            g.gain.value = 0.00001;
+            g.connect(ctx.destination);
+            const o = ctx.createOscillator();
+            o.frequency.value = 30;
+            o.connect(g);
+            const now = ctx.currentTime;
+            o.start(now);
+            o.stop(now + 0.02);
+          } catch {}
+        }, 4000);
+      }
+      return audioCtxRef.current;
+    };
+
+    const decodeUrlToBuffer = async (url) => {
+      const ctx = await ensureCtx();
+      if (!ctx) return null;
+      const key = String(url);
+      if (bufCache.has(key)) return bufCache.get(key);
+      try {
+        const r = await fetch(url);
+        if (!r.ok) { bufCache.set(key, null); return null; }
+        const ab = await r.arrayBuffer();
+        const buf = await new Promise((res, rej) => ctx.decodeAudioData(ab, res, rej));
+        bufCache.set(key, buf);
+        return buf;
+      } catch {
+        bufCache.set(key, null);
+        return null;
+      }
+    };
+
+    const playBufOnce = async (url, vol01) => {
+      const ctx = await ensureCtx();
+      if (!ctx) return false;
+      const buf = await decodeUrlToBuffer(url);
+      if (!buf) return false;
+      try {
+        const src = ctx.createBufferSource();
+        src.buffer = buf;
+        const g = ctx.createGain();
+        g.gain.value = vol01;
+        src.connect(g);
+        g.connect(ctx.destination);
+        src.start(0);
+        return true;
+      } catch {
+        return false;
+      }
+    };
     const mk = (files) => {
       const a = document.createElement("audio");
       a.preload = "auto";
@@ -163,24 +235,49 @@ export default function TimerCard({ index = 0, storageId = null, disableLongPres
         try { alarm8Loop.loop = false; alarm8Loop.pause(); alarm8Loop.currentTime = 0; } catch {}
         alarm8Loop = null;
       }
-      // 単発
+      // 単発（HTMLAudio）
       while (playing.length) {
         const a = playing.pop();
         try { a.loop = false; a.pause(); a.currentTime = 0; } catch {}
       }
+      // ※ AudioContext/keepAlive は止めない（無音で死ぬのを防ぐ）
     };
     const playById = async (rawId) => {
       const id = normalizeSoundId(rawId || "");
       if (!id || id === "none") return;
+
+      const vol01 = Math.max(0, Math.min(1, baseVolume * getVol(id)));
+
+      // できるだけ WebAudio（iOSで安定）→ ダメなら HTMLAudio
+      const tryWeb = async (base) => {
+        const wav = wb(`sounds/${base}.wav?id=${Date.now()}`);
+        const mp3 = wb(`sounds/${base}.mp3?id=${Date.now()}`);
+        return (await playBufOnce(wav, vol01)) || (await playBufOnce(mp3, vol01));
+      };
+
+      // builtins
+      if (id === "alarm8") {
+        // 単発で鳴らすケース用（ループは playGaplessAlarm8）
+        if (await tryWeb("alarm8")) return;
+      } else if (id === "builtin-beep") {
+        if (await tryWeb("alarm")) return;
+      } else if (id === "builtin-beep3") {
+        if (await tryWeb("beep3")) return;
+      }
+
+      // custom / library
+      const url = (typeof SoundsHelper.getSoundUrl === "function") ? SoundsHelper.getSoundUrl(id) : "";
+      if (url) {
+        const abs = url.startsWith("/") ? wb(url.slice(1)) : url;
+        if (await playBufOnce(abs, vol01)) return;
+      }
+
+      // HTMLAudio fallback
       let a = null;
       if (id === "alarm8") a = mk(["alarm8"]);
-      // あなたの public/sounds にある音を使う（beepファイルが無い前提）
-      // builtin-beep（ピッ）→ alarm（短い単発）
       else if (id === "builtin-beep") a = mk(["alarm"]);
-      // builtin-beep3（ピピピッ）→ beep3
       else if (id === "builtin-beep3") a = mk(["beep3"]);
       else {
-        const url = typeof SoundsHelper.getSoundUrl === "function" ? SoundsHelper.getSoundUrl(id) : "";
         if (!url) return;
         a = document.createElement("audio");
         a.preload = "auto";
@@ -190,28 +287,46 @@ export default function TimerCard({ index = 0, storageId = null, disableLongPres
         src.type = "audio/mpeg";
         a.appendChild(src);
       }
-      a.volume = Math.max(0, Math.min(1, baseVolume * getVol(id)));
+      a.volume = vol01;
       playing.push(a);
       a.onended = () => {
         const i = playing.indexOf(a);
         if (i >= 0) playing.splice(i, 1);
       };
-      try {
-        try { a.currentTime = 0; } catch {}
-        await a.play();
-      } catch {
+      try { try { a.currentTime = 0; } catch {} await a.play(); } catch {
         const i = playing.indexOf(a);
         if (i >= 0) playing.splice(i, 1);
       }
     };
     return {
-      ensureCtx: async () => null,
+      ensureCtx,
       playById,
       playByIdForDuration: async (id, ms) => { await playById(id); await new Promise((r) => setTimeout(r, ms)); },
       playGaplessAlarm8: async (fadeMs = 0) => {
-        // フォールバック版：HTMLAudioで alarm8 をループ再生（ギャップレス相当）
+        // WebAudioでループできればそっちを優先（iOSで安定）
         try {
-          // 既存ループがあれば再利用
+          const ctx = await ensureCtx();
+          if (ctx) {
+            const wav = wb(`sounds/alarm8.wav?id=${Date.now()}`);
+            const mp3 = wb(`sounds/alarm8.mp3?id=${Date.now()}`);
+            const buf = (await decodeUrlToBuffer(wav)) || (await decodeUrlToBuffer(mp3));
+            if (buf) {
+              const src = ctx.createBufferSource();
+              src.buffer = buf;
+              src.loop = true;
+              const g = ctx.createGain();
+              g.gain.value = Math.max(0, Math.min(1, baseVolume * getVol("alarm8")));
+              src.connect(g);
+              g.connect(ctx.destination);
+              src.start(0);
+              // stopAllで止められるよう HTMLAudio側も残しておく（保険）
+              return true;
+            }
+          }
+        } catch {}
+
+        // HTMLAudio fallback：alarm8 をループ
+        try {
           if (!alarm8Loop) {
             alarm8Loop = mk(["alarm8"]);
             alarm8Loop.loop = true;
