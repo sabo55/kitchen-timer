@@ -675,7 +675,7 @@ const playGaplessAlarm  = async (fadeMs = 0) => {
   };
   const longReset = useLongPress(reset, { ms: 1000 });
   const clearMemLP = useLongPress(clearLastSec, { ms: 800 });
-  const tenKeyResetLP = useLongPress(() => { if (tenKeyCfg.enabled) reset(); }, { ms: 1000 });
+  const tenKeyResetLP = useLongPress(() => { if (tenKeyCfg.enabled) clearLastSec(); }, { ms: 1000 });
 
   const start = () => {
     if (running) return; ensureAudioCtx();
