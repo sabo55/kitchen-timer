@@ -315,26 +315,6 @@ export default function TimerCard({ index = 0, storageId = null, disableLongPres
     }
   };
 
-  // HTMLAudio 向け “絶対鳴る” データURL（1kHz 120msのWAV）を生成
-  const buildBeepDataUrl = () => {
-    const sr = 44100, dur = 0.12, n = Math.max(1, Math.floor(sr * dur));
-    const data = new Uint8Array(44 + n * 2);
-    const w16 = (o, v) => { data[o] = v & 255; data[o + 1] = (v >> 8) & 255; };
-    const w32 = (o, v) => { data[o] = v & 255; data[o + 1] = (v >> 8) & 255; data[o + 2] = (v >> 16) & 255; data[o + 3] = (v >> 24) & 255; };
-    const ws = (o, s) => { for (let i = 0; i < s.length; i++) data[o + i] = s.charCodeAt(i); };
-    ws(0, 'RIFF'); w32(4, 36 + n * 2); ws(8, 'WAVE'); ws(12, 'fmt ');
-    w32(16, 16); w16(20, 1); w16(22, 1); w32(24, sr); w32(28, sr * 2); w16(32, 2); w16(34, 16);
-    ws(36, 'data'); w32(40, n * 2);
-    const freq = 1000, amp = 0.45;
-    for (let i = 0; i < n; i++) {
-      const t = i / sr; const win = 0.5 * (1 - Math.cos((2 * Math.PI * i) / (n - 1)));
-      const s = Math.max(-1, Math.min(1, Math.sin(2 * Math.PI * freq * t) * win)) * amp;
-      const q = (s * 32767) | 0; w16(44 + i * 2, q < 0 ? q + 65536 : q);
-    }
-    const b64 = btoa(String.fromCharCode.apply(null, Array.from(data)));
-    return `data:audio/wav;base64,${b64}`;
-  };
-
   const playBuiltinOneShot = async (id) => {
     const ctx = await ensureAudioCtx();
     if (!ctx) return false;
@@ -1033,11 +1013,11 @@ const playGaplessAlarm  = async (fadeMs = 0) => {
                     onMouseDown={(e) => e.preventDefault()}        // ドラッグ選択の発火を抑止
                     onClick={() => { toggleBtnRow(i); try { window.getSelection()?.removeAllRanges(); } catch {} }}
                     style={{
-                     ...NOTIFY_BTN,
-                     background: btnOn.has(i) ? COLORS.sel : "#fff",
-                     WebkitUserSelect: "none", userSelect: "none", // 選択不可（iPad Safari向け）
-                     WebkitTapHighlightColor: "transparent",       // タップ時のハイライト無効
-                     WebkitTouchCallout: "none"                    // 長押しのコールアウト無効
+                      ...NOTIFY_BTN,
+                      background: btnOn.has(i) ? COLORS.sel : "#fff",
+                      WebkitUserSelect: "none", userSelect: "none", // 選択不可（iPad Safari向け）
+                      WebkitTapHighlightColor: "transparent",       // タップ時のハイライト無効
+                      WebkitTouchCallout: "none"                    // 長押しのコールアウト無効
                     }}
                    >
                     {r.label || `通知${i + 1}`}
