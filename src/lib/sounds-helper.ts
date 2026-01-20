@@ -178,6 +178,57 @@ export function buildRadioSoundList(opts: {
   const filtered = list.filter((o) => !ex.has(normalizeSoundId(o.id)));
   return uniqById(filtered);
 }
+/* ========= グループ生成（ラジオ用） ========= */
+export type SoundGroup = {
+  label: string;
+  title: string;
+  items: SoundOption[];
+  options: SoundOption[];
+};
+
+export function buildRadioSoundGroups(opts: {
+  withBuiltins?: boolean;
+  withTimes?: boolean;
+  withCustom?: boolean;
+  withSilent?: boolean;
+  exclude?: string[];
+} = {}): SoundGroup[] {
+  const {
+    withBuiltins = true,
+    withTimes = false,
+    withCustom = true,
+    withSilent = true,
+    exclude = [],
+  } = opts;
+
+  const ex = new Set<string>(exclude.map((v) => normalizeSoundId(v)));
+  const groups: SoundGroup[] = [];
+
+  const pushGroup = (name: string, list: SoundOption[]) => {
+    const filtered = uniqById(list).filter((o) => !ex.has(normalizeSoundId(o.id)));
+    if (!filtered.length) return;
+    groups.push({ label: name, title: name, items: filtered, options: filtered });
+  };
+
+  if (withSilent) pushGroup("基本", [SILENT_OPTION]);
+  if (withBuiltins) pushGroup("内蔵", [...BUILTIN_SOUND_OPTIONS]);
+  if (withTimes) pushGroup("時間", [...TIME_ITEMS]);
+
+  if (withCustom) {
+    try {
+      const lib = loadAudioLibrary();
+      const custom: SoundOption[] = [];
+      for (const s of lib) {
+        const id = normalizeSoundId(s.id);
+        if (ex.has(id)) continue;
+        custom.push({ id, label: s.name || id });
+      }
+      pushGroup("カスタム", custom);
+    } catch {}
+  }
+
+  return groups;
+}
 
 /* ========= ラベル（表示名） ========= */
 export function toJPLabel(raw: string) {

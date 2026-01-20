@@ -2,20 +2,22 @@
 
 import React, { useState, useRef, useEffect } from "react";
 import {
-  START_LG, RESET_LG, START_SM, RESET_SM,  KEYPAD_BTN, KEYPAD_BTN_CLEAR, KEYPAD_ICON_BTN,
-  MODE_BTN, secToMMSS, NOTIFY_BTN,  TIMER_COLORS as COLORS, NB_COLOR_MAP,
-  useLongPress, extractId, normalizeSoundId,  soundKey, sameId, coerceSound, sanitizeMode,
-  loopSeconds, isDefaultLikeName, 
+  START_LG, RESET_LG, START_SM, RESET_SM, KEYPAD_BTN, KEYPAD_BTN_CLEAR, KEYPAD_ICON_BTN,
+  MODE_BTN, secToMMSS, NOTIFY_BTN, TIMER_COLORS as COLORS, NB_COLOR_MAP,
+  useLongPress, normalizeSoundId, soundKey, sameId, coerceSound, sanitizeMode,
+  loopSeconds, isDefaultLikeName,
 } from "./helpers";
 
 const TimerSettingsModal = React.lazy(() => import("./TimerSettingsModal"));
 import { createPortal } from "react-dom";
+import * as SoundsHelper from "../lib/sounds-helper";
 
 
 const VOLUME = 0.85;
 // GitHub Pages（/repo-name/ 配下）でも dev（/）でも同じ書き方で動くようにする
-const BASE_URL = (import.meta && import.meta.env && import.meta.env.BASE_URL) ? import.meta.env.BASE_URL : "/";
+const BASE_URL = (import.meta?.env?.BASE_URL) ? import.meta.env.BASE_URL : "/";
 const withBase = (p) => `${BASE_URL}${String(p).replace(/^\/+/, "")}`;
+
 // 個別音量（AudioLibraryModal由来）を反映する補助
 const getVolFor = (rawId) => {
   try {
@@ -23,12 +25,11 @@ const getVolFor = (rawId) => {
     if (!s) return 1;
     const list = JSON.parse(localStorage.getItem("timerBoard_sounds_v1") || "[]");
     const rec = Array.isArray(list) ? list.find((x) => sameId(soundKey(x), s)) : null;
-
     const v = Number(rec?.volume);
-    if (Number.isFinite(v)) return Math.min(1, Math.max(0, v / 100));
-  } catch {}
-  return 1;
+    return Number.isFinite(v) ? Math.min(1, Math.max(0, v / 100)) : 1;
+  } catch { return 1; }
 };
+
 // ビルトイン音（ライブラリ検索を回避）
 const BUILTINS = new Set(["builtin-beep", "builtin-beep3", "alarm8"]);
 
@@ -125,471 +126,131 @@ export default function TimerCard({ index = 0, storageId = null, disableLongPres
     useEffect(() => localStorage.setItem(storageKey, JSON.stringify(config)), [config, storageKey]);
   // persist last selected mode index per card
   useEffect(() => { try { localStorage.setItem(lastModeKey, String(modeIdx)); } catch {} }, [modeIdx, lastModeKey]);
+  // ---- audio: delegated to lib (keeps TimerCard compact) ----
+  const soundRef = useRef(null);  const createSoundPlayer = SoundsHelper.createSoundPlayer || ((opts = {}) => {
+    const baseVolume = Number.isFinite(opts.baseVolume) ? opts.baseVolume : 0.85;
+    const getVol = typeof opts.getVolFor === "function" ? opts.getVolFor : () => 1;
+    const wb = typeof opts.withBase === "function" ? opts.withBase : (p) => p;
+    const playing = [];
+    let alarm8Loop = null;
+    const mk = (files) => {
+      const a = document.createElement("audio");
+      a.preload = "auto";
+      a.loop = false;
+      a.playsInline = true;
 
-    const playingRef = useRef([]);
+      const list = Array.isArray(files) ? files : [files];
+      const add = (base, ext, type) => {
+        const s = document.createElement("source");
+        // public/sounds 配下（devでもPagesでも同じ）
+        s.src = wb(`sounds/${base}.${ext}?id=${Date.now()}`);
+        s.type = type;
+        a.appendChild(s);
+      };
+
+      // iPad/Safari の取りこぼし対策：候補を複数入れて最初に読めるものを使わせる
+      for (const base of list) {
+        add(base, "wav", "audio/wav");
+        add(base, "mp3", "audio/mpeg");
+      }
+
+      try { a.load(); } catch {}
+      return a;
+    };
+    const stopAll = () => {
+      // ループ中の alarm8
+      if (alarm8Loop) {
+        try { alarm8Loop.loop = false; alarm8Loop.pause(); alarm8Loop.currentTime = 0; } catch {}
+        alarm8Loop = null;
+      }
+      // 単発
+      while (playing.length) {
+        const a = playing.pop();
+        try { a.loop = false; a.pause(); a.currentTime = 0; } catch {}
+      }
+    };
+    const playById = async (rawId) => {
+      const id = normalizeSoundId(rawId || "");
+      if (!id || id === "none") return;
+      let a = null;
+      if (id === "alarm8") a = mk(["alarm8"]);
+      // あなたの public/sounds にある音を使う（beepファイルが無い前提）
+      // builtin-beep（ピッ）→ alarm（短い単発）
+      else if (id === "builtin-beep") a = mk(["alarm"]);
+      // builtin-beep3（ピピピッ）→ beep3
+      else if (id === "builtin-beep3") a = mk(["beep3"]);
+      else {
+        const url = typeof SoundsHelper.getSoundUrl === "function" ? SoundsHelper.getSoundUrl(id) : "";
+        if (!url) return;
+        a = document.createElement("audio");
+        a.preload = "auto";
+        a.loop = false;
+        const src = document.createElement("source");
+        src.src = url.startsWith("/") ? wb(url.slice(1)) : url;
+        src.type = "audio/mpeg";
+        a.appendChild(src);
+      }
+      a.volume = Math.max(0, Math.min(1, baseVolume * getVol(id)));
+      playing.push(a);
+      a.onended = () => {
+        const i = playing.indexOf(a);
+        if (i >= 0) playing.splice(i, 1);
+      };
+      try {
+        try { a.currentTime = 0; } catch {}
+        await a.play();
+      } catch {
+        const i = playing.indexOf(a);
+        if (i >= 0) playing.splice(i, 1);
+      }
+    };
+    return {
+      ensureCtx: async () => null,
+      playById,
+      playByIdForDuration: async (id, ms) => { await playById(id); await new Promise((r) => setTimeout(r, ms)); },
+      playGaplessAlarm8: async (fadeMs = 0) => {
+        // フォールバック版：HTMLAudioで alarm8 をループ再生（ギャップレス相当）
+        try {
+          // 既存ループがあれば再利用
+          if (!alarm8Loop) {
+            alarm8Loop = mk(["alarm8"]);
+            alarm8Loop.loop = true;
+          }
+          alarm8Loop.volume = Math.max(0, Math.min(1, baseVolume * getVol("alarm8")));
+          try { alarm8Loop.currentTime = 0; } catch {}
+          await alarm8Loop.play();
+          return true;
+        } catch {
+          return false;
+        }
+      },
+      stopAll,
+    };
+  });
+
+  if (!soundRef.current) {
+    soundRef.current = createSoundPlayer({ baseVolume: VOLUME, getVolFor, withBase });
+  }
+
   // 終了シーケンス（ピピピッ→第2音声→alarm8戻し）を途中で止められるようにするキャンセル用トークン
   const stopSeqTokenRef = useRef(0);
   const stopLoopTRef = useRef(null);
   const loopDeadlineRef = useRef(null);
   const loopWatchRef = useRef(null);
 
-  // Web Audio (gapless) 用
-  const audioCtxRef = useRef(null);
-  const alarmBufRef = useRef(null);
-  const beepBufRef = useRef(null);
-  const beep3BufRef = useRef(null);
-  const soundBufCacheRef = useRef(new Map());
-  const gaplessSrcsRef = useRef([]);
-
-  const loadAudioLib = () => { try { return JSON.parse(localStorage.getItem("timerBoard_sounds_v1") || "[]"); } catch { return []; } };
-
-    useEffect(() => {
-    try {
-      if (index !== 0) return; // 1カードだけが担当
-      const FLAG = "timerSounds_migrated_v2";
-      if (localStorage.getItem(FLAG)) return;
-      const list = loadAudioLib() || [];
-      if (!Array.isArray(list) || !list.length) { localStorage.setItem(FLAG, "1"); return; }
-      const updated = list.map((s) => {
-        if (s && typeof s.fileUrl === "string" && s.fileUrl.startsWith("blob:")) {
-          // 失効しがちな blob は触らずに無効化（fetch しない）
-          const { fileUrl, url, ...rest } = s;
-          return { ...rest, broken: true };
-        }
-        return s;
-      });
-      localStorage.setItem("timerBoard_sounds_v1", JSON.stringify(updated));
-      localStorage.setItem(FLAG, "1");
-    } catch {}
-  }, [index]);
-
-  const getAudio = (id) => {
-    const s = extractId(id).trim();
-    if (!s || s === "none") return null;           // 無音指定
-    if (BUILTINS.has(s)) return null;               // ビルトインは HTMLAudio で扱わない
-    if (s.startsWith("blob:")) return null;        // 失効しがちな blob は使わない
-
-    const list = loadAudioLib() || [];
-    const rec = list.find(
-  (x) => x && typeof x.id === "string" && x.id.trim().toLowerCase() === s.toLowerCase()
-);
-    if (!rec) return null;
-
-    // 1) data:URL（最優先）
-    const dataUrl = rec.dataUrl || (typeof rec.fileUrl === "string" && rec.fileUrl.startsWith("data:") && rec.fileUrl);
-    if (dataUrl) {
-      const a = document.createElement("audio"); a.preload = "auto"; a.volume = VOLUME * getVolFor(id);
-      const src = document.createElement("source"); src.src = dataUrl; src.type = rec.mime || "audio/mpeg"; a.appendChild(src);
-      return a;
-    }
-    // 2) base64 を Blob 化
-    if (rec.base64) {
-      try {
-        const bin = atob(rec.base64);
-        const bytes = new Uint8Array(bin.length);
-        for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
-        const blob = new Blob([bytes], { type: rec.mime || "audio/mpeg" });
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement("audio"); a.preload = "auto"; a.volume = VOLUME * getVolFor(id); a.dataset.tempUrl = url;
-        const src = document.createElement("source"); src.src = url; src.type = rec.mime || "audio/mpeg"; a.appendChild(src);
-        return a;
-      } catch {}
-    }
-
-    // 3) 直接URL（http/https のみ）
-    const direct = rec.url || rec.fileUrl;
-    if (direct && typeof direct === "string" && !direct.startsWith("blob:")) {
-      const a = document.createElement("audio"); a.preload = "auto"; a.volume = VOLUME * getVolFor(id);
-      const src = document.createElement("source"); src.src = direct; src.type = rec.mime || "audio/mpeg"; a.appendChild(src);
-      return a;
-    }
-    // 4) 壊れている印（旧データ）→ フォールバック
-    if (rec.broken) {
-      const a = document.createElement("audio");
-      a.preload = "auto";
-      a.volume = VOLUME * getVolFor(id);
-      // iPad 安定優先：wav → mp3
-      const wav = document.createElement("source");
-      wav.src = withBase(`sounds/alarm.wav?id=${Date.now()}`);
-      wav.type = "audio/wav";
-      a.appendChild(wav);
-      const mp3 = document.createElement("source");
-      mp3.src = withBase(`sounds/alarm.mp3?id=${Date.now()}`);
-      mp3.type = "audio/mpeg";
-      a.appendChild(mp3);
-      return a;
-    }
-
-    // 何も再生できない
-    return null;
-  };
-  const ensureAudioCtx = async () => {
-    const Ctx = (typeof window !== "undefined" && (window.AudioContext || window['webkitAudioContext'])) || null; if (!Ctx) return null;
-    if (!audioCtxRef.current) audioCtxRef.current = new Ctx();
-    if (audioCtxRef.current.state === "suspended") { try { await audioCtxRef.current.resume(); } catch {} }
-    return audioCtxRef.current;
-  };
-  const loadAlarmBuffer = async () => {
-    if (alarmBufRef.current) return alarmBufRef.current;
-    const ctx = await ensureAudioCtx();
-    if (!ctx) return null;
-
-    const fetchBuf = async (url) => {
-      const r = await fetch(url);
-      if (!r.ok) throw new Error(`fetch fail: ${r.status}`);
-      const ab = await r.arrayBuffer();
-      return await new Promise((res, rej) => ctx.decodeAudioData(ab, res, rej));
-    };
-
-    // iPad 安定優先：wav → mp3 の順で読む
-    try {
-      alarmBufRef.current = await fetchBuf(withBase(`sounds/alarm8.wav?id=${Date.now()}`));
-    } catch {
-      try {
-        alarmBufRef.current = await fetchBuf(withBase(`sounds/alarm8.mp3?id=${Date.now()}`));
-      } catch {}
-    }
-
-    return alarmBufRef.current;
-  };
-
-  const loadBeepBuffer = async () => {
-    if (beepBufRef.current) return beepBufRef.current;
-    const ctx = await ensureAudioCtx();
-    if (!ctx) return null;
-
-    // iPad運用版：ファイル(beep.mp3等)は使わず、内蔵シンセで必ず生成して返す
-    const sr = ctx.sampleRate;
-    const dur = 0.12;
-    const len = Math.max(1, Math.floor(sr * dur));
-    const buf = ctx.createBuffer(1, len, sr);
-    const ch = buf.getChannelData(0);
-    const freq = 1000; // 1kHz の“ピッ”
-    for (let i = 0; i < len; i++) {
-      const t = i / sr;
-      const w = 0.5 * (1 - Math.cos((2 * Math.PI * i) / (len - 1)));
-      ch[i] = Math.sin(2 * Math.PI * freq * t) * w;
-    }
-    beepBufRef.current = buf;
-    return beepBufRef.current;
-  };
-
-  const loadBeep3Buffer = async () => {
-    if (beep3BufRef.current) return beep3BufRef.current;
-    const ctx = await ensureAudioCtx();
-    if (!ctx) return null;
-
-    const fetchBuf = async (url) => {
-      const r = await fetch(url);
-      if (!r.ok) throw new Error(`fetch fail: ${r.status}`);
-      const ab = await r.arrayBuffer();
-      return await new Promise((res, rej) => ctx.decodeAudioData(ab, res, rej));
-    };
-
-    // まず wav → ダメなら mp3（GitHub Pages / iPad 安定優先）
-    try {
-      beep3BufRef.current = await fetchBuf(withBase(`sounds/beep3.wav?id=${Date.now()}`));
-      return beep3BufRef.current;
-    } catch {
-      try {
-        beep3BufRef.current = await fetchBuf(withBase(`sounds/beep3.mp3?id=${Date.now()}`));
-        return beep3BufRef.current;
-      } catch {
-        beep3BufRef.current = null;
-        return null;
-      }
-    }
-  };
-
-  const playBuiltinOneShot = async (id) => {
-    const ctx = await ensureAudioCtx();
-    if (!ctx) return false;
-
-    // iPad運用版：ファイル再生で統一（WebAudio decode を避ける）
-    // alarm/alarm8 と、起動時のピッ（builtin-beep）は /sounds 音源へ寄せる
-    // ただし「挟み込み前の短いピピピ（builtin-beep3）」は WebAudio(one‑shot) で鳴らす（iPadの無音化回避）
-    if (id === "alarm" || id === "alarm8" || id === "builtin-beep") return false;
-
-    const vol = VOLUME * getVolFor(id);
-    const playBufOnce = (buf, when = ctx.currentTime) => {
-      const src = ctx.createBufferSource();
-      src.buffer = buf;
-      const g = ctx.createGain();
-      g.gain.value = vol;
-      src.connect(g);
-      g.connect(ctx.destination);
-      try { src.start(when); } catch {}
-    };
-
-    if (id === "builtin-beep3") {
-      // まずは beep3 ファイルをそのまま鳴らす（「4回→3回」などに崩れないように）
-      const buf3 = await loadBeep3Buffer();
-      if (buf3) {
-        playBufOnce(buf3);
-        return true;
-      }
-
-      // beep3 が無い環境向け：単発 beep を4回スケジュールして代替（テンポも“速め”に寄せる）
-      const buf1 = await loadBeepBuffer();
-      if (!buf1) return false;
-      const now = ctx.currentTime;
-      const step = 0.11; // 110ms 間隔（体感「いつものピピピ」寄り）
-      playBufOnce(buf1, now + step * 0);
-      playBufOnce(buf1, now + step * 1);
-      playBufOnce(buf1, now + step * 2);
-      playBufOnce(buf1, now + step * 3);
-      return true;
-    }
-
-    // builtin-beep（単発）
-    const buf = await loadBeepBuffer();
-    if (!buf) return false;
-    playBufOnce(buf);
-    return true;
-  };
-
-  // WebAudioが使えない/失敗した場合にHTMLAudioでフォールバック再生
-  const playBuiltin = async (id) => {
-    // まず WebAudio one‑shot（beep / beep3 のみ。alarm/alarm8 はここでは扱わない）
-    if (await playBuiltinOneShot(id)) return true;
-
-    // HTMLAudio フォールバック（※タップ/リセットで止められるよう playingRef で追跡する）
-    const a = document.createElement("audio");
-    a.preload = "auto";
-    a.loop = false;
-    a.volume = VOLUME * getVolFor(id);
-
-    // 起動時のピッ／ピピピも、あなたが用意した /sounds 音源で鳴らす
-    const mappedId = (id === "builtin-beep") ? "alarm" : (id === "builtin-beep3") ? "beep3" : id;
-
-    // alarm / alarm8 は wav → mp3 の順（iPad安定優先）
-    const fileId = mappedId === "alarm8" ? "alarm8" : mappedId === "beep3" ? "beep3" : "alarm";
-    const wav = document.createElement("source");
-    wav.src = withBase(`sounds/${fileId}.wav?id=${Date.now()}`);
-    wav.type = "audio/wav";
-    a.appendChild(wav);
-    const mp3 = document.createElement("source");
-    mp3.src = withBase(`sounds/${fileId}.mp3?id=${Date.now()}`);
-    mp3.type = "audio/mpeg";
-    a.appendChild(mp3);
-
-    // 追跡しておく（cleanAllAudio() で確実に止める）
-    playingRef.current.push(a);
-    a.onended = () => {
-      playingRef.current = playingRef.current.filter((x) => x !== a);
-    };
-
-    try {
-      await a.play();
-      return true;
-    } catch {
-      playingRef.current = playingRef.current.filter((x) => x !== a);
-    }
-
-    return false;
-  };
-
-  // 共通: ID から音を鳴らす（無音/ビルトイン/ライブラリ/フォールバックを吸収）
-  const playById = async (rawId) => {
-    try {
-      const id = normalizeSoundId(rawId || "");
-      if (!id || id === "none") return; // 無音
-      if (BUILTINS.has(id)) {
-        await playBuiltin(id);
-        return;
-      }
-      const a = getAudio(id);
-      if (a) {
-        a.volume = VOLUME * getVolFor(id);
-        a.currentTime = 0;
-        playingRef.current.push(a);
-        a.play().catch(() => {});
-        a.onended = () => {
-          playingRef.current = playingRef.current.filter((x) => x !== a);
-          if (a.dataset && a.dataset.tempUrl) {
-            try {
-              URL.revokeObjectURL(a.dataset.tempUrl);
-            } catch {}
-          }
-        };
-        return;
-      }
-      await playBuiltin("alarm");
-    } catch {
-      // ここで握りつぶして「Uncaught (in promise)」を防ぐ
-    }
-  };
-
-  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
-
-  // 指定ミリ秒だけ音声を鳴らして止める（alarm8 ループに重ならないようにするため）
-  const playByIdForDuration = async (rawId, ms) => {
-    const id = normalizeSoundId(rawId || "");
-    if (!id || id === "none") {
-      await sleep(ms);
-      return;
-    }
-
-    // ビルトイン（alarm8 はここでは扱わない）
-    if (BUILTINS.has(id)) {
-      if (id !== "alarm8") {
-        await playBuiltin(id);
-        await sleep(ms);
-      }
-      return;
-    }
-
-    // --- まず WebAudio（iPad Safari で HTMLAudio がミュート/拒否されるのを回避）---
-    try {
-      const ctx = await ensureAudioCtx();
-      if (ctx) {
-        const cache = soundBufCacheRef.current;
-        let buf = cache.get(id);
-
-        if (!buf && !cache.has(id)) {
-          const list = loadAudioLib() || [];
-          const rec = Array.isArray(list)
-            ? list.find((x) => x && typeof x.id === "string" && x.id.trim().toLowerCase() === id.toLowerCase())
-            : null;
-
-          const toArrayBuffer = async () => {
-            if (!rec) return null;
-
-            // 1) data:URL
-            const dataUrl = rec.dataUrl || (typeof rec.fileUrl === "string" && rec.fileUrl.startsWith("data:") && rec.fileUrl);
-            if (dataUrl) {
-              const r = await fetch(dataUrl);
-              if (!r.ok) return null;
-              return await r.arrayBuffer();
-            }
-
-            // 2) base64
-            if (rec.base64) {
-              const bin = atob(rec.base64);
-              const bytes = new Uint8Array(bin.length);
-              for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
-              return bytes.buffer;
-            }
-
-            // 3) URL
-            let direct = rec.url || rec.fileUrl;
-            if (direct && typeof direct === "string" && !direct.startsWith("blob:")) {
-              // GitHub Pages（/repo/）でも動くように、同一オリジン相対は base を付ける
-              if (direct.startsWith("/")) direct = withBase(direct);
-              else if (!/^https?:|data:|blob:/i.test(direct)) direct = withBase(direct);
-
-              const r = await fetch(direct);
-              if (!r.ok) return null;
-              return await r.arrayBuffer();
-            }
-
-            // 4) broken は WebAudio では触らない（後段の HTMLAudio 側に任せる）
-            return null;
-          };
-
-          const ab = await toArrayBuffer();
-          if (ab) {
-            try {
-              buf = await new Promise((res, rej) => ctx.decodeAudioData(ab, res, rej));
-            } catch {
-              buf = null;
-            }
-          } else {
-            buf = null;
-          }
-          cache.set(id, buf);
-        }
-
-        if (buf) {
-          const src = ctx.createBufferSource();
-          src.buffer = buf;
-          const g = ctx.createGain();
-          g.gain.value = VOLUME * getVolFor(id);
-          src.connect(g);
-          g.connect(ctx.destination);
-          try { src.start(0); } catch {}
-          await sleep(ms);
-          try { src.stop(0); } catch {}
-          return;
-        }
-      }
-    } catch {
-      // WebAudio で失敗したら HTMLAudio に落とす
-    }
-
-    // --- HTMLAudio フォールバック ---
-    const a = getAudio(id);
-    if (!a) {
-      await sleep(ms);
-      return;
-    }
-
-    a.volume = VOLUME * getVolFor(id);
-    try { a.currentTime = 0; } catch {}
-
-    playingRef.current.push(a);
-    try { await a.play(); } catch {}
-
-    await sleep(ms);
-
-    try {
-      a.pause();
-      a.currentTime = 0;
-    } catch {}
-
-    playingRef.current = playingRef.current.filter((x) => x !== a);
-    if (a.dataset && a.dataset.tempUrl) {
-      try { URL.revokeObjectURL(a.dataset.tempUrl); } catch {}
-      }
-     };
-
-const playGaplessAlarm  = async (fadeMs = 0) => {
-    try {
-      const ctx = await ensureAudioCtx();
-      if (!ctx) return false;
-      const buf = await loadAlarmBuffer();
-      if (!buf) return false;
-
-      const src = ctx.createBufferSource();
-      src.buffer = buf;
-      src.loop = true;
-
-      const g = ctx.createGain();
-      const target = VOLUME * getVolFor("alarm8");
-
-      // フェードイン（重なっても聞こえやすい）
-      if (fadeMs && fadeMs > 0) {
-        try {
-          g.gain.setValueAtTime(0, ctx.currentTime);
-          g.gain.linearRampToValueAtTime(target, ctx.currentTime + fadeMs / 1000);
-        } catch {
-          g.gain.value = target;
-        }
-      } else {
-        g.gain.value = target;
-      }
-
-      src.connect(g);
-      g.connect(ctx.destination);
-
-      try {
-        src.start(0);
-      } catch {}
-      gaplessSrcsRef.current.push(src);
-      return true;
-    } catch {
-      return false;
-    }
-  };
-  const stopGaplessAlarm = () => { const list = gaplessSrcsRef.current; if (list && list.length) { list.forEach((src) => { try { src.stop(0); } catch {} }); gaplessSrcsRef.current = []; } };
+  const ensureAudioCtx = () => soundRef.current?.ensureCtx?.();
+  const playById = (id) => soundRef.current?.playById?.(id);
+  const playByIdForDuration = (id, ms) => soundRef.current?.playByIdForDuration?.(id, ms);
+  const playGaplessAlarm = (fadeMs = 0) => soundRef.current?.playGaplessAlarm8?.(fadeMs);
 
   const cleanAllAudio = () => {
     // 進行中の終了シーケンスをキャンセル
     stopSeqTokenRef.current += 1;
-    playingRef.current.forEach((s) => { s.loop = false; s.pause(); s.currentTime = 0; }); playingRef.current = [];
-    stopGaplessAlarm();
+    try { soundRef.current?.stopAll?.(); } catch {}
+
     if (stopLoopTRef.current) { clearTimeout(stopLoopTRef.current); stopLoopTRef.current = null; }
-    loopDeadlineRef.current = null; if (loopWatchRef.current) { clearInterval(loopWatchRef.current); loopWatchRef.current = null; }
+    loopDeadlineRef.current = null;
+    if (loopWatchRef.current) { clearInterval(loopWatchRef.current); loopWatchRef.current = null; }
   };
 
     const [sec, setSec] = useState(modeCfg.timeMin * 60 + modeCfg.timeSec);
@@ -752,19 +413,13 @@ const playGaplessAlarm  = async (fadeMs = 0) => {
               loopWatchRef.current = setInterval(() => {
                 if (loopDeadlineRef.current && Date.now() >= loopDeadlineRef.current) {
                   /* 保険 */
-                  playingRef.current.forEach((s) => {
-                    try { s.pause(); } catch {}
-                  });
-                  stopGaplessAlarm();
+                  try { soundRef.current?.stopAll?.(); } catch {}
                 }
               }, 120);
             }
             if (stopLoopTRef.current) clearTimeout(stopLoopTRef.current);
             stopLoopTRef.current = setTimeout(() => {
-              playingRef.current.forEach((s) => {
-                try { s.pause(); } catch {}
-              });
-              stopGaplessAlarm();
+              try { soundRef.current?.stopAll?.(); } catch {}
             }, loopSec * 1000 + 50);
 
             // --- ループ中に音声を挟む（無音なら挟まない／ミュートもしない） ---
@@ -773,45 +428,29 @@ const playGaplessAlarm  = async (fadeMs = 0) => {
 
             if (voiceId) {
               // ここで初めてループを止める（= 無音選択時にミュートされないように）
-              stopGaplessAlarm();
+              try { soundRef.current?.stopAll?.(); } catch {}
 
               // fire-and-forget（ここは setInterval の中なので await しない）
               (async () => {
                 // このシーケンス開始。途中でリセット/停止されたら中断できるようにトークンを固定
                 const seqToken = (stopSeqTokenRef.current += 1);
                 const cancelled = () => seqToken !== stopSeqTokenRef.current;
-
-                // iPad Safari: 直前の通知音が鳴っていると、終了時の「ピピピッ→第2音声」が無音になることがある。
-                // 終了シーケンスに入る前に、鳴っている音（通知など）を一旦止めてから挟み込みを再生する。
                 try {
-                  playingRef.current.forEach((a) => {
-                    try {
-                      a.loop = false;
-                      a.pause();
-                      a.currentTime = 0;
-                    } catch {}
-                  });
-                  playingRef.current = [];
+                  try { soundRef.current?.stopAll?.(); } catch {}
                 } catch {}
                 const muteSecRaw = Number(modeCfg.endInsertMuteSec ?? 2);
                 const clamped = Number.isFinite(muteSecRaw) ? Math.min(5, Math.max(0.5, muteSecRaw)) : 2;
                 const muteSec = Math.round(clamped * 2) / 2; // 0.5刻み
                 const muteMs = muteSec * 1000;
-
-                // まず「ピピピッ」を1秒（体感固定）
-                // 挟み込み前の短い合図（ここは one‑shot で確実に短く鳴らす）
                 if (cancelled()) return;
                 await playByIdForDuration("builtin-beep3", 1000);
                 if (cancelled()) return;
-
-                // 次に「音声」：指定秒数だけ鳴らして止める（その間は alarm8 をミュート）
                 await playByIdForDuration(voiceId, muteMs);
                 if (cancelled()) return;
-
-                // 残り時間があれば alarm8 ループへ戻す
                 if (cancelled()) return;
                 if (loopDeadlineRef.current && Date.now() < loopDeadlineRef.current) {
-                  stopGaplessAlarm();
+                  // 旧名の stopGaplessAlarm は廃止：委譲先にまとめる
+                  try { soundRef.current?.stopAll?.(); } catch {}
                   playGaplessAlarm();
                 }
               })();
@@ -833,7 +472,14 @@ const playGaplessAlarm  = async (fadeMs = 0) => {
     return () => clearInterval(id);
   }, [running, modeCfg.endSound, modeCfg.endLoops, modeCfg.endLoopSec, JSON.stringify(modeCfg.nbRows), JSON.stringify(modeCfg.btnRows), JSON.stringify(Array.from(btnOn))]);
 
-    useEffect(() => { if (!finished) return; if (modeCfg.endSound === "alarm8") { const ms = loopSeconds(modeCfg) * 1000; const t = setTimeout(() => { playingRef.current.forEach((s)=>{s.pause();}); stopGaplessAlarm(); }, ms + 25); return () => clearTimeout(t); } }, [finished, modeCfg]);
+    useEffect(() => {
+  if (!finished) return;
+  if (modeCfg.endSound === "alarm8") {
+    const ms = loopSeconds(modeCfg) * 1000;
+    const t = setTimeout(() => { try { soundRef.current?.stopAll?.(); } catch {} }, ms + 25);
+    return () => clearTimeout(t);
+  }
+}, [finished, modeCfg]);
   // 実行開始後に設定が開いていたら自動的に閉じる（安全策）
   useEffect(() => { if (running && showSettings) setShowSettings(false); }, [running, showSettings]);
 
@@ -841,7 +487,7 @@ const playGaplessAlarm  = async (fadeMs = 0) => {
 
     useEffect(() => { if (!finished) return; const id = setTimeout(reset, config.resetSec * 1000); return () => clearTimeout(id); }, [finished, config.resetSec]);
 
-    useEffect(() => () => { playingRef.current.forEach((s)=>{s.pause();}); stopGaplessAlarm(); }, []);
+    useEffect(() => () => { try { soundRef.current?.stopAll?.(); } catch {} }, []);
 
     const nbBg = activeBgRef.current ? NB_COLOR_MAP[activeBgRef.current] : null;
   const bg = finished ? COLORS.alert : running ? (nbBg || COLORS.run) : COLORS.card;
@@ -858,7 +504,7 @@ const playGaplessAlarm  = async (fadeMs = 0) => {
         </div>
       ) : (
         <div style={cardStyle} onClick={() => finished && reset()} onContextMenu={(e) => e.preventDefault()}>
-          {/* title + mode buttons (single row) */}
+
           {!tenKeyCfg.enabled && (
             <div style={{ display: "flex", alignItems: "center", gap: 8, width: "100%", marginBottom: 4, paddingRight: 1 }}>
               <div style={{ flex:"1 1 auto", minWidth:0, fontSize:"2rem", fontWeight:700, color: COLORS.txt, cursor:"default", overflow:"hidden", whiteSpace:"nowrap", textOverflow:"ellipsis", WebkitUserSelect:"none", userSelect:"none" }}>
@@ -881,12 +527,12 @@ const playGaplessAlarm  = async (fadeMs = 0) => {
             </div>
           )}
 
-          {/* remaining time */}
+
           <div style={{ fontFamily: "system-ui, -apple-system, Segoe UI, Roboto, Noto Sans JP, Helvetica Neue, Arial, sans-serif", fontVariantNumeric: "tabular-nums", WebkitFontSmoothing: "antialiased", fontFeatureSettings: '"tnum" 1, "zero" 0', fontSize: "clamp(3.8rem, 6vw, 5.4rem)", fontWeight: 700, color: COLORS.txt, marginBottom: 6, visibility: (finished && sec === 0 && !blink) ? "hidden" : "visible" }}>
             {(finished && sec === 0) ? "00:00" : secToMMSS(sec)}
           </div>
 
-          {/* ten-key layout (3 rows + right column) */}
+
           {tenKeyCfg.enabled && (
             <div style={{ width: "100%", marginBottom: 6, display: "flex", justifyContent: "center" }}>
               <div
@@ -899,7 +545,7 @@ const playGaplessAlarm  = async (fadeMs = 0) => {
                   maxWidth: 340,
                 }}
               >
-                {/* Row1: 7 8 9 ⚙ */}
+
                 {[7, 8, 9].map((n, i) => (
                   <button
                     key={n}
@@ -920,7 +566,6 @@ const playGaplessAlarm  = async (fadeMs = 0) => {
                   <img src={withBase("icons/gear64.svg")} width={16} height={16} alt="設定" />
                 </button>
 
-                {/* Row2: 4 5 6 クリア */}
                 {[4, 5, 6].map((n, i) => (
                   <button
                     key={n}
@@ -939,7 +584,6 @@ const playGaplessAlarm  = async (fadeMs = 0) => {
                   クリア
                 </button>
 
-                {/* Row3: 1 2 3 0 */}
                 {[1, 2, 3, 0].map((n, i) => (
                   <button
                     key={`r3-${n}`}
@@ -951,7 +595,6 @@ const playGaplessAlarm  = async (fadeMs = 0) => {
                   </button>
                 ))}
 
-                {/* Right column: Reset / Start (free from row heights) */}
                 <div
                   style={{
                     gridColumn: 5,
@@ -980,7 +623,6 @@ const playGaplessAlarm  = async (fadeMs = 0) => {
             </div>
           )}
 
-          {/* normal mode controls */}
           {!tenKeyCfg.enabled && (
             <div style={{ display: "flex", gap: 16, marginBottom: 6 }}>
               <button onClick={start} style={START_LG}>スタート</button>
@@ -988,7 +630,6 @@ const playGaplessAlarm  = async (fadeMs = 0) => {
             </div>
           )}
 
-          {/* notify buttons (max 4, toggle ON/OFF, multi‑press allowed across buttons) */}
           {!tenKeyCfg.enabled && (
             <div style={notifyAreaStyle}>
               {modeCfg.btnRows && modeCfg.btnRows.length > 0 && (
