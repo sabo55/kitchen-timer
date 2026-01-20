@@ -118,13 +118,6 @@ export default function TimerCard({ index = 0, storageId = null, disableLongPres
     setConfig((c) => ({ ...c, tenKey: { ...(c.tenKey || {}), lastSec: 0 } }));
     setSec(0);
   };
-  // 長押しで「最後に使った時間」も消去
-  const clearLastSec = () => {
-    if (running || finished) return;
-    setConfig((c) => ({ ...c, tenKey: { ...(c.tenKey || {}), lastSec: 0 } }));
-    setKeyBuf("");
-    setSec(0);
-  };
 
     const visibleModes = config.modes.map((m, i) => ({ ...m, originalIndex: i })).filter((m) => m.buttonLabel && m.buttonLabel.trim());
   const hasButtons = visibleModes.length >= 2;
@@ -667,8 +660,7 @@ const playGaplessAlarm  = async (fadeMs = 0) => {
     setRunning(false); setFinished(null);
   };
   const longReset = useLongPress(reset, { ms: 1000 });
-  const clearMemLP = useLongPress(clearLastSec, { ms: 800 });
-  const tenKeyResetLP = useLongPress(() => { if (tenKeyCfg.enabled) clearLastSec(); }, { ms: 1000 });
+  const tenKeyResetLP = useLongPress(() => { if (tenKeyCfg.enabled) clearBuf(); }, { ms: 1000 });
 
   const start = () => {
     if (running) return; ensureAudioCtx();
