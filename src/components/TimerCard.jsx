@@ -100,7 +100,7 @@ export default function TimerCard({ index = 0, storageId = null, displayNo = nul
   const displayName = (() => {
     const raw = String(modeCfg.timerName || "").trim();
     // 既存データに「タイマー1」等が保存されていても、デフォ名扱いにして“枠番号”を表示する
-    const looksDefault = /^タイマー\\d+$/.test(raw);
+    const looksDefault = /^タイマー\d+$/.test(raw);
     if (!raw || looksDefault) return `タイマー${posNo}`;
     return raw;
   })();
