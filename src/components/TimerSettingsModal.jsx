@@ -100,7 +100,7 @@ const selectBlurProps = {
 // header / tabs / buttons の共通スタイルは helpers から import 済み
 /* ───────── component ───────── */
 // 大量の音声候補向けの簡易ページング付きオーバーレイ
-export default function TimerSettingsModal({ config, setConfig, onClose, cardIndex = 0 }) {
+export default function TimerSettingsModal({ config, setConfig, onClose, cardIndex = 0, slots = null, cardCount = 27 }) {
   /* per-mode設定を外からコピー */
   const [modes, setModes] = useState(config.modes || [emptyMode(), emptyMode(), emptyMode()]);
   const [tab, setTab] = useState(0);
@@ -108,21 +108,11 @@ export default function TimerSettingsModal({ config, setConfig, onClose, cardInd
   const [dirty, setDirty] = useState(false);
   const [copyIdx, setCopyIdx] = useState("");
 
-  // コピー元候補（保存済みのカード一覧から、現在のカード以外）
-  const availableCardIndices = useMemo(() => {
-    try {
-      const keys = Object.keys(localStorage);
-      const idxs = keys
-        .filter((k) => k === "timerConfig" || k.startsWith("timerConfig_card_"))
-        .map((k) => (k === "timerConfig" ? 0 : Number(k.replace("timerConfig_card_", ""))))
-        .filter((n) => Number.isInteger(n));
-      return Array.from(new Set(idxs)).sort((a, b) => a - b);
-    } catch {
-      return [];
-    }
-  }, []);
-  const copyCandidates = useMemo(() => availableCardIndices.filter((i) => i !== cardIndex), [availableCardIndices, cardIndex]);
-
+   // コピー元候補（位置ベース：1〜cardCount）
+  const copyCandidates = useMemo(
+    () => Array.from({ length: cardCount }, (_, i) => i).filter((i) => i !== cardIndex),
+    [cardCount, cardIndex]
+  );
   // 音声が多い場合の検索付きピッカー
   const [picker, setPicker] = useState(null);
   const openPicker = (list, value, commit, title = "", y = 84) => setPicker({ list, value, commit, q: "", title, y });
@@ -540,12 +530,11 @@ const saveAndClose = () => {
   };
 
   // 他タイマーからコピー（カードインデックスを直接指定）
-  const readCardConfigFromStorage = (i) => {
+  const readCardConfigFromStorage = (sid) => {
     try {
-      // Prefer new per-card key (timerConfig_card_i). For card 0, fall back to the old legacy key (timerConfig).
-      const primaryKey = `timerConfig_card_${i}`;
+      const primaryKey = `timerConfig_card_${sid}`;
       let txt = localStorage.getItem(primaryKey);
-      if (!txt && i === 0) txt = localStorage.getItem("timerConfig"); // legacy fallback
+      if (!txt && sid === 0) txt = localStorage.getItem("timerConfig"); // legacy fallback
       return txt ? JSON.parse(txt) : null;
     } catch {
       return null;
@@ -564,11 +553,23 @@ const saveAndClose = () => {
     setDirty(true);
   };
   const execCopyFromCard = () => {
-    const i = Number(copyIdx);
-    if (!Number.isInteger(i) || i === cardIndex) return;
-    const ok = window.confirm(`タイマー${i + 1}をコピーします。現在の入力内容が破棄されますがよろしいですか？`);
+    const srcPos = Number(copyIdx);
+    if (!Number.isInteger(srcPos) || srcPos === cardIndex) return;
+
+    const ok = window.confirm(`タイマー${srcPos + 1}をコピーします。現在の入力内容が破棄されますがよろしいですか？`);
     if (!ok) return;
-    let payload = readCardConfigFromStorage(i);
+
+    // ★入れ替え後でも「位置→実体(storageId)」に変換して読む
+    let slotsLocal = slots;
+    if (!Array.isArray(slotsLocal)) {
+      try {
+        const v = JSON.parse(localStorage.getItem("timerBoard_slots_v1") || "null");
+        if (Array.isArray(v)) slotsLocal = v;
+      } catch {}
+    }
+    const srcSid = Array.isArray(slotsLocal) ? (slotsLocal[srcPos] ?? srcPos) : srcPos;
+
+    let payload = readCardConfigFromStorage(srcSid);
     if (!payload) {
       try {
         const txt = localStorage.getItem("timerCardClipboardV1");

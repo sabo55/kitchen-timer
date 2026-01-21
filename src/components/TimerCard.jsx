@@ -48,7 +48,7 @@ const emptyMode = (idx) => ({
 });
 const defaultConfig = { modes: [emptyMode(0), emptyMode(1), emptyMode(2)], resetSec: 15, returnMode: "last", cardHidden: false, tenKey: { enabled: false, keepLast: true, lastSec: 0 } };
 
-export default function TimerCard({ index = 0, storageId = null, displayNo = null, disableLongPress = false }) {
+export default function TimerCard({ index = 0, storageId = null, displayNo = null, disableLongPress = false,slots = null,  cardCount = 27,}) {
   const sid = (storageId ?? index);
   const posNo = Number.isFinite(displayNo) ? displayNo : (index + 1);
   const storageKey = `timerConfig_card_${sid}`;
@@ -803,6 +803,8 @@ export default function TimerCard({ index = 0, storageId = null, displayNo = nul
                 setConfig={setConfig}
                 onClose={() => setShowSettings(false)}
                 cardIndex={posNo - 1}
+                slots={slots}
+                cardCount={cardCount}
               />
             </div>
           </div>
