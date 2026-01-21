@@ -48,8 +48,9 @@ const emptyMode = (idx) => ({
 });
 const defaultConfig = { modes: [emptyMode(0), emptyMode(1), emptyMode(2)], resetSec: 15, returnMode: "last", cardHidden: false, tenKey: { enabled: false, keepLast: true, lastSec: 0 } };
 
-export default function TimerCard({ index = 0, storageId = null, disableLongPress = false }) {
-    const sid = (storageId ?? index);
+export default function TimerCard({ index = 0, storageId = null, displayNo = null, disableLongPress = false }) {
+  const sid = (storageId ?? index);
+  const posNo = Number.isFinite(displayNo) ? displayNo : (index + 1);
   const storageKey = `timerConfig_card_${sid}`;
   const [config, setConfig] = useState(() => {
     try {
@@ -97,8 +98,10 @@ export default function TimerCard({ index = 0, storageId = null, disableLongPres
 
   const modeCfg = (config && Array.isArray(config.modes) && config.modes[modeIdx]) ? config.modes[modeIdx] : defaultConfig.modes[0];
   const displayName = (() => {
-    const raw = modeCfg.timerName || "";
-    if (isDefaultLikeName(raw)) return `タイマー${index + 1}`;
+    const raw = String(modeCfg.timerName || "").trim();
+    // 既存データに「タイマー1」等が保存されていても、デフォ名扱いにして“枠番号”を表示する
+    const looksDefault = /^タイマー\\d+$/.test(raw);
+    if (!raw || looksDefault) return `タイマー${posNo}`;
     return raw;
   })();
 
@@ -799,7 +802,7 @@ export default function TimerCard({ index = 0, storageId = null, disableLongPres
                 config={config}
                 setConfig={setConfig}
                 onClose={() => setShowSettings(false)}
-                cardIndex={index}
+                cardIndex={posNo - 1}
               />
             </div>
           </div>

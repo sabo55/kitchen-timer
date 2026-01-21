@@ -383,7 +383,7 @@ const floatPanel = {
                   background: (swapMode && firstPick === pos) ? "rgba(59,130,246,0.06)" : "#fff",
                 }}
               >
-                <TimerCard index={pos} storageId={(slots[pos] ?? pos)} disableLongPress={swapMode} cardMax={colW} />
+                <TimerCard index={pos} storageId={(slots[pos] ?? pos)} displayNo={pos + 1} disableLongPress={swapMode} cardMax={colW} />
               </div>
             </div>
           </div>
