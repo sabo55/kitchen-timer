@@ -358,7 +358,7 @@ const floatPanel = {
       }}>
         {visibleIndices.map((pos) => (
           <div
-            key={pos}
+            key={(slots[pos] ?? pos)}
             style={{
               width: "100%",
               position: "relative",
