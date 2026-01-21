@@ -83,6 +83,20 @@ const CSS = {
 const selectStyle = { ...CSS.input, width: "auto" };
 const SOUND_SELECTED_WIDTH = 260; // iPadでラベルが潰れにくい幅
 
+// iPad Safari対策：キーボード表示中に <select> を開くと選択UIが縮み＆タップ位置ズレが起きやすい。
+// select を開く直前にフォーカス中の input を blur してキーボードを閉じる。
+const blurActiveElement = () => {
+  try {
+    const el = document.activeElement;
+    if (el && typeof el.blur === "function") el.blur();
+  } catch {}
+};
+const selectBlurProps = {
+  onPointerDown: blurActiveElement,
+  onTouchStart: blurActiveElement,
+  onMouseDown: blurActiveElement,
+};
+
 // header / tabs / buttons の共通スタイルは helpers から import 済み
 /* ───────── component ───────── */
 // 大量の音声候補向けの簡易ページング付きオーバーレイ
@@ -570,7 +584,8 @@ const saveAndClose = () => {
         <div style={headerBar}>
         <div style={headerCopy}>
           <select
-            style={{ ...selectStyle, maxWidth: 160 }}
+                {...selectBlurProps}
+                style={{ ...selectStyle, maxWidth: 160 }}
             value={copyIdx}
             onChange={(e) => setCopyIdx(e.target.value)}
           >
@@ -662,6 +677,7 @@ const saveAndClose = () => {
           <Field label="タイマー時間">
             <div style={timeRowWrap}>
               <select
+                {...selectBlurProps}
                 style={selectStyle}
                 value={curr.timeMin}
                 onChange={(e) => patchMode({ timeMin: Number(e.target.value) })}
@@ -670,6 +686,7 @@ const saveAndClose = () => {
               </select>
               <span>分</span>
               <select
+                {...selectBlurProps}
                 style={selectStyle}
                 value={curr.timeSec}
                 onChange={(e) => patchMode({ timeSec: Number(e.target.value) })}
@@ -686,6 +703,7 @@ const saveAndClose = () => {
           <div style={CSS.section}>
             <Field label="通知（背景色）">
               <select
+                {...selectBlurProps}
                 style={{ ...selectStyle, marginLeft: 12 }}
                 value={curr.nbRows.length}
                 onChange={(e) => setNbRowsCount(Number(e.target.value))}
@@ -703,7 +721,8 @@ const saveAndClose = () => {
                 {/* 通知 (時刻+音) */}
                 <div style={rowWrap}>
                   <select
-                    style={selectStyle}
+                {...selectBlurProps}
+                style={selectStyle}
                     value={row.notify1.min}
                     onChange={(e) => updateNB(idx, (r) => { r.notify1.min = Number(e.target.value); })}
                   >
@@ -711,7 +730,8 @@ const saveAndClose = () => {
                   </select>
                   <span>分</span>
                   <select
-                    style={selectStyle}
+                {...selectBlurProps}
+                style={selectStyle}
                     value={row.notify1.sec}
                     onChange={(e) => updateNB(idx, (r) => { r.notify1.sec = Number(e.target.value); })}
                   >
@@ -768,7 +788,8 @@ const saveAndClose = () => {
                 <>
                   <span>停止まで</span>
                   <select
-                    style={selectStyle}
+                {...selectBlurProps}
+                style={selectStyle}
                     value={curr.endLoopSec ?? 10}
                     onChange={(e) => patchMode({ endLoopSec: Number(e.target.value) })}
                   >
@@ -814,7 +835,8 @@ const saveAndClose = () => {
                        <>
                          <span style={{ fontWeight: 700, whiteSpace: "nowrap" }}>挟む秒数</span>
                          <select
-                           style={selectStyle}
+                {...selectBlurProps}
+                style={selectStyle}
                            value={Number(curr.endInsertMuteSec ?? 2)}
                            onChange={(e) => patchMode({ endInsertMuteSec: Number(e.target.value) })}
                          >
@@ -839,7 +861,8 @@ const saveAndClose = () => {
         <div style={CSS.section}>
           <Field label="通知ボタン（行数）">
             <select
-            style={{ ...selectStyle, marginLeft: 12 }}
+                {...selectBlurProps}
+                style={{ ...selectStyle, marginLeft: 12 }}
             value={curr.btnRows ? curr.btnRows.length : 0}
             onChange={(e) => {
               const n = Number(e.target.value);
@@ -905,7 +928,8 @@ const saveAndClose = () => {
               {["n1", "n2"].map((k) => (
                   <div key={k} style={rowWrap}>
                     <select
-                      style={selectStyle}
+                {...selectBlurProps}
+                style={selectStyle}
                       value={r[k].min}
                       onChange={(e) => updateBtn(idx, k, (r) => { r.min = Number(e.target.value); })}
                     >
@@ -913,7 +937,8 @@ const saveAndClose = () => {
                     </select>
                     <span>分</span>
                     <select
-                      style={selectStyle}
+                {...selectBlurProps}
+                style={selectStyle}
                       value={r[k].sec}
                       onChange={(e) => updateBtn(idx, k, (r) => { r.sec = Number(e.target.value); })}
                     >
@@ -941,7 +966,8 @@ const saveAndClose = () => {
 
           <Field label="自動リセット">
             <select
-              style={selectStyle}
+                {...selectBlurProps}
+                style={selectStyle}
               value={resetSec}
               onChange={(e) => {
                 setResetSec(Number(e.target.value));
@@ -975,6 +1001,7 @@ const saveAndClose = () => {
           {!tenKeyEnabled && (
             <Field label="終了後戻るモード">
               <select
+                {...selectBlurProps}
                 style={selectStyle}
                 value={returnMode}
                 onChange={(e) => {
@@ -1010,3 +1037,4 @@ export function useSettingsModalEscToSave(saveFn) {
     return () => window.removeEventListener("keydown", onKey);
   }, [saveFn]);
 }
+
