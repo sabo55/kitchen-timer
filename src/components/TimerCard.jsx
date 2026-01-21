@@ -133,6 +133,7 @@ export default function TimerCard({ index = 0, storageId = null, disableLongPres
     const wb = typeof opts.withBase === "function" ? opts.withBase : (p) => p;
     const playing = [];
     let alarm8Loop = null;
+    let alarm8WebLoop = null; // WebAudioのloop用（stopAllで止める）
 
     // iOS対策：AudioContext を維持（無音が続くと鳴らなくなるのを回避）
     const audioCtxRef = { current: null };
@@ -230,7 +231,13 @@ export default function TimerCard({ index = 0, storageId = null, disableLongPres
       return a;
     };
     const stopAll = () => {
-      // ループ中の alarm8
+      // ループ中の alarm8（WebAudio）
+      if (alarm8WebLoop) {
+        try { alarm8WebLoop.stop(0); } catch {}
+        try { alarm8WebLoop.disconnect(); } catch {}
+        alarm8WebLoop = null;
+      }
+      // ループ中の alarm8（HTMLAudio）
       if (alarm8Loop) {
         try { alarm8Loop.loop = false; alarm8Loop.pause(); alarm8Loop.currentTime = 0; } catch {}
         alarm8Loop = null;
@@ -311,6 +318,12 @@ export default function TimerCard({ index = 0, storageId = null, disableLongPres
             const mp3 = wb(`sounds/alarm8.mp3?id=${Date.now()}`);
             const buf = (await decodeUrlToBuffer(wav)) || (await decodeUrlToBuffer(mp3));
             if (buf) {
+              // 既存ループがあれば止める
+              if (alarm8WebLoop) {
+                try { alarm8WebLoop.stop(0); } catch {}
+                try { alarm8WebLoop.disconnect(); } catch {}
+                alarm8WebLoop = null;
+              }
               const src = ctx.createBufferSource();
               src.buffer = buf;
               src.loop = true;
@@ -319,7 +332,7 @@ export default function TimerCard({ index = 0, storageId = null, disableLongPres
               src.connect(g);
               g.connect(ctx.destination);
               src.start(0);
-              // stopAllで止められるよう HTMLAudio側も残しておく（保険）
+              alarm8WebLoop = src;
               return true;
             }
           }
