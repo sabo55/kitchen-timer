@@ -806,66 +806,81 @@ const formatTenKeyBuf = (buf) => {
             </div>
           )}
 
-          {!tenKeyCfg.enabled && (
-            <div style={{ width: "100%", display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, alignItems: "stretch", marginBottom: 4 }}>
-              <button
-                {...(running ? longReset : {})}
-                onClick={!running ? onStartButtonClick : undefined}
-                title={running ? "長押しで取り消し" : undefined}
+          {!tenKeyCfg.enabled && (() => {
+            const visibleNotifyBtns = (modeCfg.btnRows || [])
+              .slice(0, 4)
+              .map((r, i) => ({ r, i }))
+              .filter(({ r }) => String(r?.label || "").trim());
+            const hasNotifyBtns = visibleNotifyBtns.length > 0;
+
+            return (
+              <div
                 style={{
-                  ...(running ? RESET_LG : START_LG),
                   width: "100%",
-                  minHeight: 92,
-                  height: "100%",
-                  margin: 0,
-                  alignSelf: "stretch",
-                  justifySelf: "stretch",
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "center",
-                  flexDirection: "column",
-                  lineHeight: 1.05,
-                  gap: 2
+                  display: "grid",
+                  gridTemplateColumns: hasNotifyBtns ? "1fr 1fr" : "1fr",
+                  gap: 10,
+                  alignItems: "stretch",
+                  marginBottom: 4,
                 }}
               >
-                {running ? (
-                  <>
-                    <span>取り消し</span>
-                    <span style={{ fontSize: "0.78em", fontWeight: 700 }}>（長押し）</span>
-                  </>
-                ) : (
-                  "スタート"
-                )}
-              </button>
+                <button
+                  {...(running ? longReset : {})}
+                  onClick={!running ? onStartButtonClick : undefined}
+                  title={running ? "長押しで取り消し" : undefined}
+                  style={{
+                    ...(running ? RESET_LG : START_LG),
+                    width: "100%",
+                    minHeight: 92,
+                    height: "100%",
+                    margin: 0,
+                    alignSelf: "stretch",
+                    justifySelf: hasNotifyBtns ? "stretch" : "center",
+                    maxWidth: hasNotifyBtns ? "none" : 240,
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    flexDirection: "column",
+                    lineHeight: 1.05,
+                    gap: 2,
+                  }}
+                >
+                  {running ? (
+                    <>
+                      <span>取り消し</span>
+                      <span style={{ fontSize: "0.78em", fontWeight: 700 }}>（長押し）</span>
+                    </>
+                  ) : (
+                    "スタート"
+                  )}
+                </button>
 
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, minHeight: 92, alignContent: "start" }}>
-                {modeCfg.btnRows && modeCfg.btnRows.length > 0 ? (
-                  modeCfg.btnRows.slice(0, 4).map((r, i) => (
-                    <button
-                      key={i}
-                      onMouseDown={(e) => e.preventDefault()}        // ドラッグ選択の発火を抑止
-                      onClick={() => { toggleBtnRow(i); try { window.getSelection()?.removeAllRanges(); } catch {} }}
-                      style={{
-                        ...NOTIFY_BTN,
-                        width: "100%",
-                        minHeight: 42,
-                        margin: 0,
-                        fontSize: "1.2rem",
-                        background: btnOn.has(i) ? COLORS.sel : "#fff",
-                        WebkitUserSelect: "none", userSelect: "none", // 選択不可（iPad Safari向け）
-                        WebkitTapHighlightColor: "transparent",       // タップ時のハイライト無効
-                        WebkitTouchCallout: "none"                    // 長押しのコールアウト無効
-                      }}
-                    >
-                      {r.label || `通知${i + 1}`}
-                    </button>
-                  ))
-                ) : (
-                  <div style={{ gridColumn: "1 / 3", minHeight: 92 }} />
+                {hasNotifyBtns && (
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, minHeight: 92, alignContent: "start" }}>
+                    {visibleNotifyBtns.map(({ r, i }) => (
+                      <button
+                        key={i}
+                        onMouseDown={(e) => e.preventDefault()}        // ドラッグ選択の発火を抑止
+                        onClick={() => { toggleBtnRow(i); try { window.getSelection()?.removeAllRanges(); } catch {} }}
+                        style={{
+                          ...NOTIFY_BTN,
+                          width: "100%",
+                          minHeight: 42,
+                          margin: 0,
+                          background: btnOn.has(i) ? COLORS.sel : "#fff",
+                          WebkitUserSelect: "none", userSelect: "none", // 選択不可（iPad Safari向け）
+                          WebkitTapHighlightColor: "transparent",       // タップ時のハイライト無効
+                          WebkitTouchCallout: "none"                    // 長押しのコールアウト無効
+                        }}
+                      >
+                        {r.label || `通知${i + 1}`}
+                      </button>
+                    ))}
+                  </div>
                 )}
               </div>
-            </div>
-          )}
+            );
+          })()}
         </div>
       )}
 
