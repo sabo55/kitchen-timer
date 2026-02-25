@@ -850,6 +850,7 @@ const formatTenKeyBuf = (buf) => {
                         width: "100%",
                         minHeight: 42,
                         margin: 0,
+                        fontSize: "1.2rem",
                         background: btnOn.has(i) ? COLORS.sel : "#fff",
                         WebkitUserSelect: "none", userSelect: "none", // 選択不可（iPad Safari向け）
                         WebkitTapHighlightColor: "transparent",       // タップ時のハイライト無効
