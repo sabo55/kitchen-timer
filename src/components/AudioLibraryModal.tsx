@@ -134,8 +134,25 @@ export default function AudioLibraryModal({ open, onClose, sounds, onChange }: A
 
   const pushChange = (next: SoundItem[]) => {
     const withBuilt = ensureBuiltins(next);
+
+    try {
+      localStorage.setItem("timerBoard_sounds_v1", JSON.stringify(withBuilt));
+    } catch (e: any) {
+      const isQuota =
+        e?.name === "QuotaExceededError" ||
+        e?.name === "NS_ERROR_DOM_QUOTA_REACHED" ||
+        /quota/i.test(String(e?.name || "")) ||
+        /quota|storage/i.test(String(e?.message || ""));
+
+     window.alert(
+  isQuota
+    ? "音声ライブラリの保存容量がいっぱいです。\n不要な音声を削除するか、短い音声ファイルにしてください。"
+    : "音声ライブラリの保存に失敗しました。"
+);
+      return;
+    }
+
     setInternal(withBuilt);
-    try { localStorage.setItem("timerBoard_sounds_v1", JSON.stringify(withBuilt)); } catch {}
     onChange?.(withBuilt);
   };
 
@@ -146,6 +163,18 @@ export default function AudioLibraryModal({ open, onClose, sounds, onChange }: A
 
   const handleRegister = () => {
     if (!file) return;
+
+    // iPad実運用の安定性のため、登録時にサイズ上限を設ける
+    // （IndexedDB移行後も「重すぎる音声」の事故防止として有効）
+    const MAX_FILE_SIZE_BYTES = 1024 * 1024; // 1MB
+    if (file.size > MAX_FILE_SIZE_BYTES) {
+      window.alert(
+  `音声ファイルが大きすぎます（${Math.round(file.size / 1024)}KB）。\n` +
+  `1MB以下の短い音声ファイルを登録してください。`
+);
+      return;
+    }
+
     const reader = new FileReader();
     reader.onload = () => {
       const dataUrl = String(reader.result || "");

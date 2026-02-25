@@ -109,11 +109,17 @@ export default function TimerCard({ index = 0, storageId = null, displayNo = nul
   const tenKeyCfg = (config.tenKey || { enabled: false, keepLast: true, lastSec: 0 });
   const [keyBuf, setKeyBuf] = useState("");
   const bufToSec = (buf) => {
-    const s = String(buf).replace(/\D/g, "").slice(-4);
-    const mm = Number(s.slice(0, -2) || 0);
-    const ss = Number(s.slice(-2) || 0);
-    return Math.min(59, ss) + Math.min(599, mm) * 60;
-  };
+  const s = String(buf).replace(/\D/g, "").slice(-4);
+  const mm = Number(s.slice(0, -2) || 0);
+  const ss = Number(s.slice(-2) || 0);
+  // 入力中は秒を59で丸めない（例: 00:60 を許可）
+  return Math.min(99, ss) + Math.min(599, mm) * 60;
+};
+
+const formatTenKeyBuf = (buf) => {
+  const s = String(buf || "").replace(/\D/g, "").slice(-4).padStart(4, "0");
+  return s.slice(0, 2) + ":" + s.slice(2, 4);
+};
   const pushDigit = (d) => { if (!running && !finished) setKeyBuf((b) => (String(b) + d).slice(-4)); };
   const clearBuf = () => {
     if (running || finished) return;
@@ -455,7 +461,8 @@ export default function TimerCard({ index = 0, storageId = null, displayNo = nul
   const tenKeyResetLP = useLongPress(() => { if (tenKeyCfg.enabled) clearBuf(); }, { ms: 1000 });
 
   const start = () => {
-    if (running) return; ensureAudioCtx();
+    if (running || finished) return;
+    ensureAudioCtx();
     // Ten-key: set seconds from buffer / keepLast and remember lastSec
     if (tenKeyCfg.enabled) {
       const current = keyBuf ? bufToSec(keyBuf) : (tenKeyCfg.keepLast ? (tenKeyCfg.lastSec || 0) : sec);
@@ -659,8 +666,27 @@ export default function TimerCard({ index = 0, storageId = null, displayNo = nul
           )}
 
 
-          <div style={{ fontFamily: "system-ui, -apple-system, Segoe UI, Roboto, Noto Sans JP, Helvetica Neue, Arial, sans-serif", fontVariantNumeric: "tabular-nums", WebkitFontSmoothing: "antialiased", fontFeatureSettings: '"tnum" 1, "zero" 0', fontSize: "clamp(3.8rem, 6vw, 5.4rem)", fontWeight: 700, color: COLORS.txt, marginBottom: 6, visibility: (finished && sec === 0 && !blink) ? "hidden" : "visible" }}>
-            {(finished && sec === 0) ? "00:00" : secToMMSS(sec)}
+          <div style={{ width: "100%", marginBottom: 6, display: "grid", gridTemplateColumns: "32px 1fr 32px", alignItems: "center" }}>
+            <div aria-hidden="true" style={{ width: 32, height: 32 }} />
+            <div style={{ textAlign: "center", fontFamily: "system-ui, -apple-system, Segoe UI, Roboto, Noto Sans JP, Helvetica Neue, Arial, sans-serif", fontVariantNumeric: "tabular-nums", WebkitFontSmoothing: "antialiased", fontFeatureSettings: '"tnum" 1, "zero" 0', fontSize: "clamp(3.8rem, 6vw, 5.4rem)", fontWeight: 700, color: COLORS.txt, visibility: (finished && sec === 0 && !blink) ? "hidden" : "visible" }}>
+              {(finished && sec === 0)
+  ? "00:00"
+  : (tenKeyCfg.enabled && !running && !finished)
+    ? formatTenKeyBuf(keyBuf || "")
+    : secToMMSS(sec)}
+            </div>
+            {!tenKeyCfg.enabled ? (
+              <button
+                {...longPressHandlers}
+                aria-label="設定"
+                title="設定"
+                style={{ width: 32, height: 32, border: "1px solid #666", borderRadius: 8, background: "#fff", padding: 0, display: "flex", alignItems: "center", justifyContent: "center", justifySelf: "end", marginTop: 40 }}
+              >
+                <img src={withBase("icons/gear64.svg")} width={16} height={16} alt="設定" />
+              </button>
+            ) : (
+              <div aria-hidden="true" style={{ width: 32, height: 32 }} />
+            )}
           </div>
 
 
@@ -670,7 +696,7 @@ export default function TimerCard({ index = 0, storageId = null, displayNo = nul
                 style={{
                   display: "grid",
                   gridTemplateColumns: "repeat(4, 1fr) 1.6fr",
-                  gridTemplateRows: "repeat(3, 34px)",
+                  gridTemplateRows: "repeat(3, 44px)",
                   gap: 6,
                   width: "auto",
                   maxWidth: 340,
@@ -682,7 +708,7 @@ export default function TimerCard({ index = 0, storageId = null, displayNo = nul
                     key={n}
                     onClick={() => pushDigit(String(n))}
                     disabled={running}
-                    style={{ gridColumn: 1 + i, gridRow: 1, ...KEYPAD_BTN }}
+                    style={{ gridColumn: 1 + i, gridRow: 1, ...KEYPAD_BTN, fontSize: "1.4rem",  borderRadius: 10,  }}
                   >
                     {n}
                   </button>
@@ -702,7 +728,7 @@ export default function TimerCard({ index = 0, storageId = null, displayNo = nul
                     key={n}
                     onClick={() => pushDigit(String(n))}
                     disabled={running}
-                    style={{ gridColumn: 1 + i, gridRow: 2, ...KEYPAD_BTN }}
+                    style={{ gridColumn: 1 + i, gridRow: 2, ...KEYPAD_BTN, fontSize: "1.4rem",  borderRadius: 10, }}
                   >
                     {n}
                   </button>
@@ -731,64 +757,98 @@ export default function TimerCard({ index = 0, storageId = null, displayNo = nul
                     gridColumn: 5,
                     gridRow: "1 / 4",
                     display: "flex",
-                    flexDirection: "column",
-                    justifyContent: "space-between",
-                    gap: 8,
+                    alignItems: "stretch",
+                    justifyContent: "stretch",
                   }}
                 >
-                    <button
-    onClick={start}
-    style={START_SM}
-  >
-    スタート
-      </button>
                   <button
-    {...tenKeyResetLP}
-    title="長押しでリセット"
-    style={RESET_SM}
-  >
-    リセット
-  </button>
+                    {...(running ? longReset : {})}
+                    onClick={!running ? start : undefined}
+                    title={running ? "長押しで取り消し" : undefined}
+                    style={{
+                      ...(running ? RESET_SM : START_SM),
+                      width: "100%",
+                      height: "100%",
+                      margin: 0,
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      flexDirection: "column",
+                      lineHeight: 1.05,
+                      gap: 2
+                    }}
+                  >
+                    {running ? (
+                      <>
+                        <span>取り消し</span>
+                        <span style={{ fontSize: "0.72em", fontWeight: 700 }}>（長押し）</span>
+                      </>
+                    ) : (
+                      "スタート"
+                    )}
+                  </button>
                 </div>
               </div>
             </div>
           )}
 
           {!tenKeyCfg.enabled && (
-            <div style={{ display: "flex", gap: 16, marginBottom: 6 }}>
-              <button onClick={start} style={START_LG}>スタート</button>
-              <button {...longReset} style={RESET_LG}>リセット</button>
-            </div>
-          )}
-
-          {!tenKeyCfg.enabled && (
-            <div style={notifyAreaStyle}>
-              {modeCfg.btnRows && modeCfg.btnRows.length > 0 && (
-                modeCfg.btnRows.slice(0, 4).map((r, i) => (
-                  <button
-                    key={i}
-                    onMouseDown={(e) => e.preventDefault()}        // ドラッグ選択の発火を抑止
-                    onClick={() => { toggleBtnRow(i); try { window.getSelection()?.removeAllRanges(); } catch {} }}
-                    style={{
-                      ...NOTIFY_BTN,
-                      background: btnOn.has(i) ? COLORS.sel : "#fff",
-                      WebkitUserSelect: "none", userSelect: "none", // 選択不可（iPad Safari向け）
-                      WebkitTapHighlightColor: "transparent",       // タップ時のハイライト無効
-                      WebkitTouchCallout: "none"                    // 長押しのコールアウト無効
-                    }}
-                   >
-                    {r.label || `通知${i + 1}`}
-                  </button>
-                ))
-              )}
+            <div style={{ width: "100%", display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, alignItems: "stretch", marginBottom: 4 }}>
               <button
-                {...longPressHandlers}
-                aria-label="設定"
-                title="設定"
-                style={{ marginLeft: "auto", border: "1px solid #666", borderRadius: 6, background: "#fff", padding: "4px 8px", display: "flex", alignItems: "center", justifyContent: "center" }}
+                {...(running ? longReset : {})}
+                onClick={!running ? start : undefined}
+                title={running ? "長押しで取り消し" : undefined}
+                style={{
+                  ...(running ? RESET_LG : START_LG),
+                  width: "100%",
+                  minHeight: 92,
+                  height: "100%",
+                  margin: 0,
+                  alignSelf: "stretch",
+                  justifySelf: "stretch",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  flexDirection: "column",
+                  lineHeight: 1.05,
+                  gap: 2
+                }}
               >
-                <img src={withBase("icons/gear64.svg")} width={16} height={16} alt="設定" />
+                {running ? (
+                  <>
+                    <span>取り消し</span>
+                    <span style={{ fontSize: "0.78em", fontWeight: 700 }}>（長押し）</span>
+                  </>
+                ) : (
+                  "スタート"
+                )}
               </button>
+
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, minHeight: 92, alignContent: "start" }}>
+                {modeCfg.btnRows && modeCfg.btnRows.length > 0 ? (
+                  modeCfg.btnRows.slice(0, 4).map((r, i) => (
+                    <button
+                      key={i}
+                      onMouseDown={(e) => e.preventDefault()}        // ドラッグ選択の発火を抑止
+                      onClick={() => { toggleBtnRow(i); try { window.getSelection()?.removeAllRanges(); } catch {} }}
+                      style={{
+                        ...NOTIFY_BTN,
+                        width: "100%",
+                        minHeight: 42,
+                        margin: 0,
+                        background: btnOn.has(i) ? COLORS.sel : "#fff",
+                        WebkitUserSelect: "none", userSelect: "none", // 選択不可（iPad Safari向け）
+                        WebkitTapHighlightColor: "transparent",       // タップ時のハイライト無効
+                        WebkitTouchCallout: "none"                    // 長押しのコールアウト無効
+                      }}
+                    >
+                      {r.label || `通知${i + 1}`}
+                    </button>
+                  ))
+                ) : (
+                  <div style={{ gridColumn: "1 / 3", minHeight: 92 }} />
+                )}
+              </div>
             </div>
           )}
         </div>
@@ -814,3 +874,4 @@ export default function TimerCard({ index = 0, storageId = null, displayNo = nul
     </>
   );
 }
+
