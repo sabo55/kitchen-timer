@@ -457,8 +457,22 @@ const formatTenKeyBuf = (buf) => {
     setModeIdx(targetMode); try { localStorage.setItem(lastModeKey, String(targetMode)); } catch {} const m = config.modes[targetMode]; setSec(m.timeMin * 60 + m.timeSec);
     setRunning(false); setFinished(null);
   };
-  const longReset = useLongPress(reset, { ms: 1000 });
+  const ignoreNextStartClickRef = useRef(false);
+  const longReset = useLongPress(() => {
+    ignoreNextStartClickRef.current = true;
+    reset();
+  }, { ms: 1000 });
   const tenKeyResetLP = useLongPress(() => { if (tenKeyCfg.enabled) clearBuf(); }, { ms: 1000 });
+
+  const onStartButtonClick = (e) => {
+    if (ignoreNextStartClickRef.current) {
+      ignoreNextStartClickRef.current = false;
+      try { e?.preventDefault?.(); } catch {}
+      try { e?.stopPropagation?.(); } catch {}
+      return;
+    }
+    start();
+  };
 
   const start = () => {
     if (running || finished) return;
@@ -763,7 +777,7 @@ const formatTenKeyBuf = (buf) => {
                 >
                   <button
                     {...(running ? longReset : {})}
-                    onClick={!running ? start : undefined}
+                    onClick={!running ? onStartButtonClick : undefined}
                     title={running ? "長押しで取り消し" : undefined}
                     style={{
                       ...(running ? RESET_SM : START_SM),
@@ -796,7 +810,7 @@ const formatTenKeyBuf = (buf) => {
             <div style={{ width: "100%", display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, alignItems: "stretch", marginBottom: 4 }}>
               <button
                 {...(running ? longReset : {})}
-                onClick={!running ? start : undefined}
+                onClick={!running ? onStartButtonClick : undefined}
                 title={running ? "長押しで取り消し" : undefined}
                 style={{
                   ...(running ? RESET_LG : START_LG),
