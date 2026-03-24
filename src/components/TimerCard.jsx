@@ -11,6 +11,7 @@ import {
 const TimerSettingsModal = React.lazy(() => import("./TimerSettingsModal"));
 import { createPortal } from "react-dom";
 import * as SoundsHelper from "../lib/sounds-helper";
+import { hydrateAudioLibrary } from "../lib/audio-library-storage";
 
 
 const VOLUME = 0.85;
@@ -413,6 +414,7 @@ const formatTenKeyBuf = (buf) => {
   const startAudioPrefetchRef = useRef(new Map());
   const lastStartAudioRef = useRef({ id: "", at: 0 });
   const pendingStartSoundRef = useRef({ id: "", token: 0 });
+  const [audioLibraryReadyTick, setAudioLibraryReadyTick] = useState(0);
 
   const resolveStartSoundSrc = (rawId) => {
     const id = normalizeSoundId(rawId || "");
@@ -476,6 +478,22 @@ const formatTenKeyBuf = (buf) => {
     return a;
   };
 
+  const resetStartSoundCacheFor = (rawId) => {
+    const id = normalizeSoundId(rawId || "");
+    if (!id) return;
+    const cached = startAudioCacheRef.current.get(id);
+    if (cached) {
+      try { cached.pause(); } catch {}
+      startAudioCacheRef.current.delete(id);
+    }
+    const blobUrl = startAudioBlobUrlRef.current.get(id);
+    if (blobUrl) {
+      try { URL.revokeObjectURL(blobUrl); } catch {}
+      startAudioBlobUrlRef.current.delete(id);
+    }
+    startAudioPrefetchRef.current.delete(id);
+  };
+
   const playStartSoundDirect = (rawId, opts = {}) => {
     const id = normalizeSoundId(rawId || "");
     if (!id || id === "none") return false;
@@ -516,12 +534,21 @@ const formatTenKeyBuf = (buf) => {
   };
 
   useEffect(() => {
+    let cancelled = false;
+    void hydrateAudioLibrary().then(() => {
+      if (!cancelled) setAudioLibraryReadyTick((v) => v + 1);
+    }).catch(() => {});
+    return () => { cancelled = true; };
+  }, []);
+
+  useEffect(() => {
     const id = normalizeSoundId(config?.modes?.[modeIdx]?.startSound || "");
     if (!id || id === "none") return;
+    resetStartSoundCacheFor(id);
     prefetchStartSound(id);
     const a = getStartSoundAudio(id);
     try { a?.load?.(); } catch {}
-  }, [config?.modes, modeIdx]);
+  }, [config?.modes, modeIdx, audioLibraryReadyTick]);
 
   const cleanAllAudio = () => {
     // 進行中の終了シーケンスをキャンセル
