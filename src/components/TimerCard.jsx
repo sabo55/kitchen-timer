@@ -271,10 +271,10 @@ const formatTenKeyBuf = (buf) => {
       const canUseWebAudio = !!audioCtxRef.current && audioCtxRef.current.state === "running";
 
       // できるだけ WebAudio（iOSで安定）→ ダメなら HTMLAudio
-      const tryWeb = async (base) => {
+    const tryWeb = async (base) => {
         if (!canUseWebAudio) return false;
-        const wav = wb(`sounds/${base}.wav?id=${Date.now()}`);
-        const mp3 = wb(`sounds/${base}.mp3?id=${Date.now()}`);
+        const wav = wb(`sounds/${base}.wav`);
+        const mp3 = wb(`sounds/${base}.mp3`);
         return (await playBufOnce(wav, vol01)) || (await playBufOnce(mp3, vol01));
       };
 
@@ -415,6 +415,7 @@ const formatTenKeyBuf = (buf) => {
   const lastStartAudioRef = useRef({ id: "", at: 0 });
   const pendingStartSoundRef = useRef({ id: "", token: 0 });
   const [audioLibraryReadyTick, setAudioLibraryReadyTick] = useState(0);
+  const assetWarmRef = useRef(new Map());
 
   const resolveStartSoundSrc = (rawId) => {
     const id = normalizeSoundId(rawId || "");
@@ -450,6 +451,17 @@ const formatTenKeyBuf = (buf) => {
       });
 
     startAudioPrefetchRef.current.set(id, task);
+  };
+
+  const warmAssetUrl = (src) => {
+    if (!src || typeof window === "undefined" || typeof fetch !== "function") return;
+    if (assetWarmRef.current.has(src)) return;
+    const task = fetch(src)
+      .catch(() => {})
+      .finally(() => {
+        assetWarmRef.current.delete(src);
+      });
+    assetWarmRef.current.set(src, task);
   };
 
   const getStartSoundAudio = (rawId) => {
@@ -542,12 +554,19 @@ const formatTenKeyBuf = (buf) => {
   }, []);
 
   useEffect(() => {
-    const id = normalizeSoundId(config?.modes?.[modeIdx]?.startSound || "");
-    if (!id || id === "none") return;
-    resetStartSoundCacheFor(id);
-    prefetchStartSound(id);
-    const a = getStartSoundAudio(id);
-    try { a?.load?.(); } catch {}
+    const startId = normalizeSoundId(config?.modes?.[modeIdx]?.startSound || "");
+    if (startId && startId !== "none") {
+      resetStartSoundCacheFor(startId);
+      prefetchStartSound(startId);
+      const a = getStartSoundAudio(startId);
+      try { a?.load?.(); } catch {}
+    }
+
+    const endId = normalizeSoundId(config?.modes?.[modeIdx]?.endSound || "");
+    if (endId === "alarm8") {
+      warmAssetUrl(withBase("sounds/alarm8.wav"));
+      warmAssetUrl(withBase("sounds/alarm8.mp3"));
+    }
   }, [config?.modes, modeIdx, audioLibraryReadyTick]);
 
   const cleanAllAudio = () => {
