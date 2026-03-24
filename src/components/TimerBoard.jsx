@@ -2,6 +2,7 @@ import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from "re
 import TimerCard from "./TimerCard";
 import AudioLibraryModal from "@/components/AudioLibraryModal";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
+import { hydrateAudioLibrary, loadAudioLibraryMeta } from "@/lib/audio-library-storage";
 
 // 固定用トースト定数（変更防止のため Object.freeze）
 const TOAST_STYLE = Object.freeze({
@@ -35,14 +36,14 @@ export default function TimerBoard() {
   useEffect(() => { setPage(0); }, [viewMode]);
   // pageCount は capacity 定義後に算出します
   const [audioLibOpen, setAudioLibOpen] = useState(false);
-  const [sounds, setSounds] = useState(() => {
-    try {
-      return JSON.parse(localStorage.getItem("timerBoard_sounds_v1") || "[]");
-    } catch { return []; }
-  });
+  const [sounds, setSounds] = useState(() => loadAudioLibraryMeta());
   useEffect(() => {
-    localStorage.setItem("timerBoard_sounds_v1", JSON.stringify(sounds));
-  }, [sounds]);
+    let cancelled = false;
+    void hydrateAudioLibrary().then((next) => {
+      if (!cancelled) setSounds(next);
+    }).catch(() => {});
+    return () => { cancelled = true; };
+  }, []);
 
   useEffect(() => {
     if (!menuOpen && swapMode) {
@@ -290,6 +291,20 @@ const floatPanel = {
   };
 
   const toggleSwap = () => setSwapMode(v => !v);
+  const closeApp = () => {
+    setMenuOpen(false);
+    setTimeout(() => {
+      try { window.open("", "_self"); } catch {}
+      try { window.close(); } catch {}
+      setTimeout(() => {
+        try {
+          if (typeof document !== "undefined" && !document.hidden) {
+            window.alert("この環境ではアプリを自動で閉じられません。ホーム画面へ戻ってから閉じてください。");
+          }
+        } catch {}
+      }, 250);
+    }, 0);
+  };
 
   const toolbar = (
     <div style={{ display: "flex", flexDirection: "column", gap: 12, width: "100%" }}>
@@ -334,6 +349,11 @@ const floatPanel = {
         onClick={() => setAudioLibOpen(true)}
         style={{width: "100%", padding: "6px 10px", borderRadius: 8, border: "1px solid #888", background: "#f5f5f5", fontWeight: 700}}
       >音声設定</button>
+
+      <button
+        onClick={closeApp}
+        style={{width: "100%", padding: "6px 10px", borderRadius: 8, border: "1px solid #888", background: "#f5f5f5", fontWeight: 700}}
+      >アプリを閉じる</button>
     </div>
   );
 

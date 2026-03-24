@@ -149,12 +149,12 @@ const formatTenKeyBuf = (buf) => {
     const bufCache = new Map();
     let keepAliveT = null;
 
-    const ensureCtx = async () => {
+    const ensureCtx = () => {
       const Ctx = (typeof window !== "undefined" && (window.AudioContext || window.webkitAudioContext)) || null;
       if (!Ctx) return null;
       if (!audioCtxRef.current) audioCtxRef.current = new Ctx();
       if (audioCtxRef.current.state === "suspended") {
-        try { await audioCtxRef.current.resume(); } catch {}
+        try { audioCtxRef.current.resume().catch(() => {}); } catch {}
       }
       // keep-alive（4秒周期。5秒無音で死ぬ現象の回避）
       if (!keepAliveT) {
@@ -178,27 +178,30 @@ const formatTenKeyBuf = (buf) => {
       }
       return audioCtxRef.current;
     };
+    const getRunningCtx = () => {
+      const ctx = audioCtxRef.current;
+      return (ctx && ctx.state === "running") ? ctx : null;
+    };
 
     const decodeUrlToBuffer = async (url) => {
-      const ctx = await ensureCtx();
+      const ctx = getRunningCtx();
       if (!ctx) return null;
       const key = String(url);
       if (bufCache.has(key)) return bufCache.get(key);
       try {
         const r = await fetch(url);
-        if (!r.ok) { bufCache.set(key, null); return null; }
+        if (!r.ok) return null;
         const ab = await r.arrayBuffer();
         const buf = await new Promise((res, rej) => ctx.decodeAudioData(ab, res, rej));
         bufCache.set(key, buf);
         return buf;
       } catch {
-        bufCache.set(key, null);
         return null;
       }
     };
 
     const playBufOnce = async (url, vol01) => {
-      const ctx = await ensureCtx();
+      const ctx = getRunningCtx();
       if (!ctx) return false;
       const buf = await decodeUrlToBuffer(url);
       if (!buf) return false;
@@ -215,7 +218,8 @@ const formatTenKeyBuf = (buf) => {
         return false;
       }
     };
-    const mk = (files) => {
+    const mk = (files, opts = {}) => {
+      const { cacheBust = true } = opts;
       const a = document.createElement("audio");
       a.preload = "auto";
       a.loop = false;
@@ -225,7 +229,7 @@ const formatTenKeyBuf = (buf) => {
       const add = (base, ext, type) => {
         const s = document.createElement("source");
         // public/sounds 配下（devでもPagesでも同じ）
-        s.src = wb(`sounds/${base}.${ext}?id=${Date.now()}`);
+        s.src = cacheBust ? wb(`sounds/${base}.${ext}?id=${Date.now()}`) : wb(`sounds/${base}.${ext}`);
         s.type = type;
         a.appendChild(s);
       };
@@ -263,9 +267,11 @@ const formatTenKeyBuf = (buf) => {
       if (!id || id === "none") return;
 
       const vol01 = Math.max(0, Math.min(1, baseVolume * getVol(id)));
+      const canUseWebAudio = !!audioCtxRef.current && audioCtxRef.current.state === "running";
 
       // できるだけ WebAudio（iOSで安定）→ ダメなら HTMLAudio
       const tryWeb = async (base) => {
+        if (!canUseWebAudio) return false;
         const wav = wb(`sounds/${base}.wav?id=${Date.now()}`);
         const mp3 = wb(`sounds/${base}.mp3?id=${Date.now()}`);
         return (await playBufOnce(wav, vol01)) || (await playBufOnce(mp3, vol01));
@@ -283,7 +289,7 @@ const formatTenKeyBuf = (buf) => {
 
       // custom / library
       const url = (typeof SoundsHelper.getSoundUrl === "function") ? SoundsHelper.getSoundUrl(id) : "";
-      if (url) {
+      if (url && canUseWebAudio) {
         const abs = url.startsWith("/") ? wb(url.slice(1)) : url;
         if (await playBufOnce(abs, vol01)) return;
       }
@@ -321,10 +327,10 @@ const formatTenKeyBuf = (buf) => {
       playGaplessAlarm8: async (fadeMs = 0) => {
         // WebAudioでループできればそっちを優先（iOSで安定）
         try {
-          const ctx = await ensureCtx();
+          const ctx = getRunningCtx();
           if (ctx) {
-            const wav = wb(`sounds/alarm8.wav?id=${Date.now()}`);
-            const mp3 = wb(`sounds/alarm8.mp3?id=${Date.now()}`);
+            const wav = wb("sounds/alarm8.wav");
+            const mp3 = wb("sounds/alarm8.mp3");
             const buf = (await decodeUrlToBuffer(wav)) || (await decodeUrlToBuffer(mp3));
             if (buf) {
               // 既存ループがあれば止める
@@ -342,21 +348,23 @@ const formatTenKeyBuf = (buf) => {
               g.connect(ctx.destination);
               src.start(0);
               alarm8WebLoop = src;
-              return true;
+              return Date.now();
             }
           }
         } catch {}
 
         // HTMLAudio fallback：alarm8 をループ
         try {
-          if (!alarm8Loop) {
-            alarm8Loop = mk(["alarm8"]);
-            alarm8Loop.loop = true;
+          if (alarm8Loop) {
+            try { alarm8Loop.loop = false; alarm8Loop.pause(); alarm8Loop.currentTime = 0; } catch {}
+            alarm8Loop = null;
           }
+          alarm8Loop = mk(["alarm8"], { cacheBust: false });
+          alarm8Loop.loop = true;
           alarm8Loop.volume = Math.max(0, Math.min(1, baseVolume * getVol("alarm8")));
           try { alarm8Loop.currentTime = 0; } catch {}
           await alarm8Loop.play();
-          return true;
+          return Date.now();
         } catch {
           return false;
         }
@@ -375,10 +383,145 @@ const formatTenKeyBuf = (buf) => {
   const loopDeadlineRef = useRef(null);
   const loopWatchRef = useRef(null);
 
+  const scheduleAlarmLoopStop = (startedAtMs, loopSec) => {
+    loopDeadlineRef.current = startedAtMs + loopSec * 1000;
+
+    if (!loopWatchRef.current) {
+      loopWatchRef.current = setInterval(() => {
+        if (loopDeadlineRef.current && Date.now() >= loopDeadlineRef.current) {
+          try { soundRef.current?.stopAll?.(); } catch {}
+        }
+      }, 120);
+    }
+    if (stopLoopTRef.current) clearTimeout(stopLoopTRef.current);
+    stopLoopTRef.current = setTimeout(() => {
+      try { soundRef.current?.stopAll?.(); } catch {}
+    }, loopSec * 1000 + 50);
+  };
+
+  const startAlarmLoop = async (loopSec) => {
+    const startedAt = await playGaplessAlarm();
+    if (startedAt) scheduleAlarmLoopStop(startedAt, loopSec);
+  };
+
   const ensureAudioCtx = () => soundRef.current?.ensureCtx?.();
   const playById = (id) => soundRef.current?.playById?.(id);
   const playByIdForDuration = (id, ms) => soundRef.current?.playByIdForDuration?.(id, ms);
   const playGaplessAlarm = (fadeMs = 0) => soundRef.current?.playGaplessAlarm8?.(fadeMs);
+  const startAudioCacheRef = useRef(new Map());
+  const startAudioBlobUrlRef = useRef(new Map());
+  const startAudioPrefetchRef = useRef(new Map());
+  const lastStartAudioRef = useRef({ id: "", at: 0 });
+  const pendingStartSoundRef = useRef({ id: "", token: 0 });
+
+  const resolveStartSoundSrc = (rawId) => {
+    const id = normalizeSoundId(rawId || "");
+    if (!id || id === "none") return "";
+    if (id === "builtin-beep") return withBase("sounds/alarm.wav");
+    if (id === "builtin-beep3") return withBase("sounds/beep3.wav");
+    if (id === "alarm8") return withBase("sounds/alarm8.wav");
+    const url = (typeof SoundsHelper.getSoundUrl === "function") ? SoundsHelper.getSoundUrl(id) : "";
+    return url ? (url.startsWith("/") ? withBase(url.slice(1)) : url) : "";
+  };
+
+  const prefetchStartSound = (rawId) => {
+    const id = normalizeSoundId(rawId || "");
+    const src = resolveStartSoundSrc(id);
+    if (!id || !src || typeof window === "undefined" || typeof fetch !== "function") return;
+    if (startAudioBlobUrlRef.current.has(id) || startAudioPrefetchRef.current.has(id)) return;
+
+    const task = fetch(src)
+      .then((r) => (r.ok ? r.blob() : null))
+      .then((blob) => {
+        if (!blob) return;
+        const blobUrl = URL.createObjectURL(blob);
+        startAudioBlobUrlRef.current.set(id, blobUrl);
+        const a = startAudioCacheRef.current.get(id);
+        if (a) {
+          a.src = blobUrl;
+          try { a.load(); } catch {}
+        }
+      })
+      .catch(() => {})
+      .finally(() => {
+        startAudioPrefetchRef.current.delete(id);
+      });
+
+    startAudioPrefetchRef.current.set(id, task);
+  };
+
+  const getStartSoundAudio = (rawId) => {
+    const id = normalizeSoundId(rawId || "");
+    if (!id || id === "none" || typeof document === "undefined") return null;
+    const cached = startAudioCacheRef.current.get(id);
+    if (cached) return cached;
+
+    const builtinBase =
+      id === "builtin-beep" ? "alarm" :
+      id === "builtin-beep3" ? "beep3" :
+      id === "alarm8" ? "alarm8" : "";
+
+    const a = document.createElement("audio");
+    a.preload = "auto";
+    a.loop = false;
+    a.playsInline = true;
+    a.volume = Math.max(0, Math.min(1, VOLUME * getVolFor(id)));
+    const blobUrl = startAudioBlobUrlRef.current.get(id);
+    const src = blobUrl || resolveStartSoundSrc(id);
+    if (!src) return null;
+    a.src = src;
+
+    try { a.load(); } catch {}
+    startAudioCacheRef.current.set(id, a);
+    return a;
+  };
+
+  const playStartSoundDirect = (rawId, opts = {}) => {
+    const id = normalizeSoundId(rawId || "");
+    if (!id || id === "none") return false;
+    const { force = false } = opts;
+
+    const now = Date.now();
+    const last = lastStartAudioRef.current;
+    if (!force && last.id === id && now - last.at < 300) return true;
+
+    const a = getStartSoundAudio(id);
+    if (!a) return false;
+
+    const clearPendingIfSame = () => {
+      const pending = pendingStartSoundRef.current;
+      if (pending.id === id) pendingStartSoundRef.current = { id: "", token: 0 };
+    };
+    a.addEventListener("playing", clearPendingIfSame, { once: true });
+
+    lastStartAudioRef.current = { id, at: now };
+    try { a.pause(); } catch {}
+    try { a.currentTime = 0; } catch {}
+
+    try {
+      const p = a.play();
+      if (p && typeof p.catch === "function") {
+        p.catch(() => {
+          const lastPlayed = lastStartAudioRef.current;
+          if (lastPlayed.id === id && lastPlayed.at === now) {
+            lastStartAudioRef.current = { id: "", at: 0 };
+          }
+        });
+      }
+      return true;
+    } catch {
+      lastStartAudioRef.current = { id: "", at: 0 };
+      return false;
+    }
+  };
+
+  useEffect(() => {
+    const id = normalizeSoundId(config?.modes?.[modeIdx]?.startSound || "");
+    if (!id || id === "none") return;
+    prefetchStartSound(id);
+    const a = getStartSoundAudio(id);
+    try { a?.load?.(); } catch {}
+  }, [config?.modes, modeIdx]);
 
   const cleanAllAudio = () => {
     // 進行中の終了シーケンスをキャンセル
@@ -458,15 +601,72 @@ const formatTenKeyBuf = (buf) => {
     setRunning(false); setFinished(null);
   };
   const ignoreNextStartClickRef = useRef(false);
+  const ignoreNextStartPointerClickRef = useRef(false);
+  const suppressLongResetUntilReleaseRef = useRef(false);
+  const startPressReleaseCleanupRef = useRef(null);
   const longReset = useLongPress(() => {
+    if (suppressLongResetUntilReleaseRef.current) return;
     ignoreNextStartClickRef.current = true;
     reset();
   }, { ms: 1000 });
   const tenKeyResetLP = useLongPress(() => { if (tenKeyCfg.enabled) clearBuf(); }, { ms: 1000 });
 
+  const onStartButtonPointerDown = (e) => {
+    if (finished) {
+      ignoreNextStartPointerClickRef.current = true;
+      try { e?.preventDefault?.(); } catch {}
+      try { e?.stopPropagation?.(); } catch {}
+      reset();
+      return;
+    }
+    if (running) return;
+    if (e?.pointerType === "mouse" && e.button !== 0) return;
+    const startId = normalizeSoundId(config?.modes?.[modeIdx]?.startSound || "");
+    pendingStartSoundRef.current = { id: startId, token: Date.now() };
+    suppressLongResetUntilReleaseRef.current = true;
+    try { startPressReleaseCleanupRef.current?.(); } catch {}
+    if (typeof window !== "undefined") {
+      const release = () => {
+        releaseStartPressGuard();
+      };
+      const opts = { passive: true };
+      window.addEventListener("pointerup", release, opts);
+      window.addEventListener("pointercancel", release, opts);
+      window.addEventListener("mouseup", release, opts);
+      window.addEventListener("touchend", release, opts);
+      window.addEventListener("touchcancel", release, opts);
+      startPressReleaseCleanupRef.current = () => {
+        window.removeEventListener("pointerup", release, opts);
+        window.removeEventListener("pointercancel", release, opts);
+        window.removeEventListener("mouseup", release, opts);
+        window.removeEventListener("touchend", release, opts);
+        window.removeEventListener("touchcancel", release, opts);
+        startPressReleaseCleanupRef.current = null;
+      };
+    }
+    ignoreNextStartPointerClickRef.current = true;
+    try { e?.preventDefault?.(); } catch {}
+    start();
+  };
+  const releaseStartPressGuard = () => {
+    const pending = pendingStartSoundRef.current;
+    if (pending.id) {
+      playStartSoundDirect(pending.id, { force: true });
+      pendingStartSoundRef.current = { id: "", token: 0 };
+    }
+    suppressLongResetUntilReleaseRef.current = false;
+    try { startPressReleaseCleanupRef.current?.(); } catch {}
+  };
+
   const onStartButtonClick = (e) => {
     if (ignoreNextStartClickRef.current) {
       ignoreNextStartClickRef.current = false;
+      try { e?.preventDefault?.(); } catch {}
+      try { e?.stopPropagation?.(); } catch {}
+      return;
+    }
+    if (ignoreNextStartPointerClickRef.current) {
+      ignoreNextStartPointerClickRef.current = false;
       try { e?.preventDefault?.(); } catch {}
       try { e?.stopPropagation?.(); } catch {}
       return;
@@ -476,7 +676,6 @@ const formatTenKeyBuf = (buf) => {
 
   const start = () => {
     if (running || finished) return;
-    ensureAudioCtx();
     // Ten-key: set seconds from buffer / keepLast and remember lastSec
     if (tenKeyCfg.enabled) {
       const current = keyBuf ? bufToSec(keyBuf) : (tenKeyCfg.keepLast ? (tenKeyCfg.lastSec || 0) : sec);
@@ -487,7 +686,8 @@ const formatTenKeyBuf = (buf) => {
     }
     const startIdRaw = config.modes[modeIdx].startSound;
     const startId = normalizeSoundId(startIdRaw || "");
-    playById(startId);
+    pendingStartSoundRef.current = { id: startId, token: Date.now() };
+    playStartSoundDirect(startId);
     setRunning(true);
   };
 
@@ -558,21 +758,6 @@ const formatTenKeyBuf = (buf) => {
           if (!endId || endId === "none") { /* 無音 */ }
           else if (endId === "alarm8") {
             const loopSec = loopSeconds(modeCfg);
-            loopDeadlineRef.current = Date.now() + loopSec * 1000;
-
-            // watchdog / stop timer（既存の停止ロジックは維持。合計時間は loopSec に収める）
-            if (!loopWatchRef.current) {
-              loopWatchRef.current = setInterval(() => {
-                if (loopDeadlineRef.current && Date.now() >= loopDeadlineRef.current) {
-                  /* 保険 */
-                  try { soundRef.current?.stopAll?.(); } catch {}
-                }
-              }, 120);
-            }
-            if (stopLoopTRef.current) clearTimeout(stopLoopTRef.current);
-            stopLoopTRef.current = setTimeout(() => {
-              try { soundRef.current?.stopAll?.(); } catch {}
-            }, loopSec * 1000 + 50);
 
             // --- ループ中に音声を挟む（無音なら挟まない／ミュートもしない） ---
             const voiceIdRaw = normalizeSoundId(coerceSound(modeCfg.endInsertVoiceSound) || "");
@@ -600,15 +785,12 @@ const formatTenKeyBuf = (buf) => {
                 await playByIdForDuration(voiceId, muteMs);
                 if (cancelled()) return;
                 if (cancelled()) return;
-                if (loopDeadlineRef.current && Date.now() < loopDeadlineRef.current) {
-                  // 旧名の stopGaplessAlarm は廃止：委譲先にまとめる
-                  try { soundRef.current?.stopAll?.(); } catch {}
-                  playGaplessAlarm();
-                }
+                try { soundRef.current?.stopAll?.(); } catch {}
+                await startAlarmLoop(loopSec);
               })();
             } else {
               // 通常：すぐ alarm8 ループ（無音のときはミュートしない）
-              playGaplessAlarm();
+              startAlarmLoop(loopSec);
             }
           } else {
             playById(endId);
@@ -624,14 +806,6 @@ const formatTenKeyBuf = (buf) => {
     return () => clearInterval(id);
   }, [running, modeCfg.endSound, modeCfg.endLoops, modeCfg.endLoopSec, JSON.stringify(modeCfg.nbRows), JSON.stringify(modeCfg.btnRows), JSON.stringify(Array.from(btnOn))]);
 
-    useEffect(() => {
-  if (!finished) return;
-  if (modeCfg.endSound === "alarm8") {
-    const ms = loopSeconds(modeCfg) * 1000;
-    const t = setTimeout(() => { try { soundRef.current?.stopAll?.(); } catch {} }, ms + 25);
-    return () => clearTimeout(t);
-  }
-}, [finished, modeCfg]);
   // 実行開始後に設定が開いていたら自動的に閉じる（安全策）
   useEffect(() => { if (running && showSettings) setShowSettings(false); }, [running, showSettings]);
 
@@ -640,6 +814,20 @@ const formatTenKeyBuf = (buf) => {
     useEffect(() => { if (!finished) return; const id = setTimeout(reset, config.resetSec * 1000); return () => clearTimeout(id); }, [finished, config.resetSec]);
 
     useEffect(() => () => { try { soundRef.current?.stopAll?.(); } catch {} }, []);
+    useEffect(() => () => {
+      try {
+        startAudioCacheRef.current.forEach((a) => {
+          try { a.pause(); } catch {}
+        });
+        startAudioCacheRef.current.clear();
+        startAudioBlobUrlRef.current.forEach((url) => {
+          try { URL.revokeObjectURL(url); } catch {}
+        });
+        startAudioBlobUrlRef.current.clear();
+        startAudioPrefetchRef.current.clear();
+      } catch {}
+    }, []);
+    useEffect(() => () => { try { startPressReleaseCleanupRef.current?.(); } catch {} }, []);
 
     const nbBg = activeBgRef.current ? NB_COLOR_MAP[activeBgRef.current] : null;
   const bg = finished ? COLORS.alert : running ? (nbBg || COLORS.run) : COLORS.card;
@@ -777,6 +965,10 @@ const formatTenKeyBuf = (buf) => {
                 >
                   <button
                     {...(running ? longReset : {})}
+                    onPointerDown={!running ? onStartButtonPointerDown : undefined}
+                    onPointerUp={releaseStartPressGuard}
+                    onPointerCancel={releaseStartPressGuard}
+                    onPointerLeave={running ? undefined : releaseStartPressGuard}
                     onClick={!running ? onStartButtonClick : undefined}
                     title={running ? "長押しで取り消し" : undefined}
                     style={{
@@ -789,7 +981,11 @@ const formatTenKeyBuf = (buf) => {
                       justifyContent: "center",
                       flexDirection: "column",
                       lineHeight: 1.05,
-                      gap: 2
+                      gap: 2,
+                      userSelect: "none",
+                      WebkitUserSelect: "none",
+                      WebkitTouchCallout: "none",
+                      touchAction: "manipulation",
                     }}
                   >
                     {running ? (
@@ -826,6 +1022,10 @@ const formatTenKeyBuf = (buf) => {
               >
                 <button
                   {...(running ? longReset : {})}
+                  onPointerDown={!running ? onStartButtonPointerDown : undefined}
+                  onPointerUp={releaseStartPressGuard}
+                  onPointerCancel={releaseStartPressGuard}
+                  onPointerLeave={running ? undefined : releaseStartPressGuard}
                   onClick={!running ? onStartButtonClick : undefined}
                   title={running ? "長押しで取り消し" : undefined}
                   style={{
@@ -843,6 +1043,10 @@ const formatTenKeyBuf = (buf) => {
                     flexDirection: "column",
                     lineHeight: 1.05,
                     gap: 2,
+                    userSelect: "none",
+                    WebkitUserSelect: "none",
+                    WebkitTouchCallout: "none",
+                    touchAction: "manipulation",
                   }}
                 >
                   {running ? (

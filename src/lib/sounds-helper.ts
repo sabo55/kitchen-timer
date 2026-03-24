@@ -2,6 +2,8 @@
 // JSXは使わないので拡張子は .ts 推奨（.tsxは不要）
 
 /* ========= 型 ========= */
+import { getCachedSoundUrl, loadAudioLibraryMeta } from "./audio-library-storage";
+
 export type SoundOption = { id: string; label: string };
 export type SavedSound = {
   id: string;
@@ -23,7 +25,7 @@ export const BUILTIN_SOUND_OPTIONS: SoundOption[] = [
 
 // public/sounds の実ファイル名（拡張子を除いたベース名）
 export const PUBLIC_BUILTIN_FILE_BASENAME: Record<string, string> = {
-  "builtin-beep": "beep",
+  "builtin-beep": "alarm",
   "builtin-beep3": "beep3",
   "alarm8": "alarm8",
   "": "silent", // 無音（ダミー）
@@ -72,8 +74,7 @@ export function slugifyForSound(label: string) {
 /* ========= LocalStorage 読み書き ========= */
 export function loadAudioLibrary(): SavedSound[] {
   try {
-    const raw = localStorage.getItem("timerBoard_sounds_v1");
-    const arr = raw ? JSON.parse(raw) : [];
+    const arr = loadAudioLibraryMeta();
     return Array.isArray(arr) ? arr : [];
   } catch {
     return [];
@@ -122,7 +123,7 @@ export function getSoundUrl(id: string): string {
   try {
     const lib = loadAudioLibrary();
     const hit = lib.find((s) => String(s.id) === pid);
-    const u = hit?.dataUrl || hit?.url;
+    const u = getCachedSoundUrl(pid) || hit?.dataUrl || hit?.url;
     if (u) return u;
   } catch {}
   // public/sounds 最終解決
