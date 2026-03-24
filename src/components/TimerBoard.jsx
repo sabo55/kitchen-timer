@@ -291,21 +291,6 @@ const floatPanel = {
   };
 
   const toggleSwap = () => setSwapMode(v => !v);
-  const closeApp = () => {
-    setMenuOpen(false);
-    setTimeout(() => {
-      try { window.open("", "_self"); } catch {}
-      try { window.close(); } catch {}
-      setTimeout(() => {
-        try {
-          if (typeof document !== "undefined" && !document.hidden) {
-            window.alert("この環境ではアプリを自動で閉じられません。ホーム画面へ戻ってから閉じてください。");
-          }
-        } catch {}
-      }, 250);
-    }, 0);
-  };
-
   const toolbar = (
     <div style={{ display: "flex", flexDirection: "column", gap: 12, width: "100%" }}>
       <button
@@ -349,11 +334,6 @@ const floatPanel = {
         onClick={() => setAudioLibOpen(true)}
         style={{width: "100%", padding: "6px 10px", borderRadius: 8, border: "1px solid #888", background: "#f5f5f5", fontWeight: 700}}
       >音声設定</button>
-
-      <button
-        onClick={closeApp}
-        style={{width: "100%", padding: "6px 10px", borderRadius: 8, border: "1px solid #888", background: "#f5f5f5", fontWeight: 700}}
-      >アプリを閉じる</button>
     </div>
   );
 
