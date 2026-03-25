@@ -464,6 +464,29 @@ const formatTenKeyBuf = (buf) => {
     assetWarmRef.current.set(src, task);
   };
 
+  const warmPlaybackSound = (rawId) => {
+    const id = normalizeSoundId(rawId || "");
+    if (!id || id === "none") return;
+    if (id === "builtin-beep") {
+      warmAssetUrl(withBase("sounds/alarm.wav"));
+      warmAssetUrl(withBase("sounds/alarm.mp3"));
+      return;
+    }
+    if (id === "builtin-beep3") {
+      warmAssetUrl(withBase("sounds/beep3.wav"));
+      warmAssetUrl(withBase("sounds/beep3.mp3"));
+      return;
+    }
+    if (id === "alarm8") {
+      warmAssetUrl(withBase("sounds/alarm8.wav"));
+      warmAssetUrl(withBase("sounds/alarm8.mp3"));
+      return;
+    }
+    const url = (typeof SoundsHelper.getSoundUrl === "function") ? SoundsHelper.getSoundUrl(id) : "";
+    if (!url) return;
+    warmAssetUrl(url.startsWith("/") ? withBase(url.slice(1)) : url);
+  };
+
   const getStartSoundAudio = (rawId) => {
     const id = normalizeSoundId(rawId || "");
     if (!id || id === "none" || typeof document === "undefined") return null;
@@ -668,6 +691,7 @@ const formatTenKeyBuf = (buf) => {
     }
     if (running) return;
     if (e?.pointerType === "mouse" && e.button !== 0) return;
+    ensureAudioCtx();
     const startId = normalizeSoundId(config?.modes?.[modeIdx]?.startSound || "");
     pendingStartSoundRef.current = { id: startId, token: Date.now() };
     suppressLongResetUntilReleaseRef.current = true;
@@ -749,6 +773,10 @@ const formatTenKeyBuf = (buf) => {
   };
   const onNotifyButtonPointerDown = (i, e) => {
     if (e?.pointerType === "mouse" && e.button !== 0) return;
+    ensureAudioCtx();
+    const row = (modeCfg.btnRows || [])[i];
+    warmPlaybackSound(row?.n1?.sound || "");
+    warmPlaybackSound(row?.n2?.sound || "");
     ignoreNextNotifyClickRef.current = true;
     try { e?.preventDefault?.(); } catch {}
     try { e?.stopPropagation?.(); } catch {}
