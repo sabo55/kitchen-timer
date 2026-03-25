@@ -412,6 +412,7 @@ const formatTenKeyBuf = (buf) => {
   const startAudioCacheRef = useRef(new Map());
   const startAudioBlobUrlRef = useRef(new Map());
   const startAudioPrefetchRef = useRef(new Map());
+  const startAudioLiveRef = useRef(null);
   const lastStartAudioRef = useRef({ id: "", at: 0 });
   const pendingStartSoundRef = useRef({ id: "", token: 0 });
   const [audioLibraryReadyTick, setAudioLibraryReadyTick] = useState(0);
@@ -513,6 +514,22 @@ const formatTenKeyBuf = (buf) => {
     return a;
   };
 
+  const createStartSoundPlaybackAudio = (rawId) => {
+    const id = normalizeSoundId(rawId || "");
+    if (!id || id === "none" || typeof document === "undefined") return null;
+    const warmed = getStartSoundAudio(id);
+    if (!warmed) return null;
+
+    const a = document.createElement("audio");
+    a.preload = "auto";
+    a.loop = false;
+    a.playsInline = true;
+    a.volume = Math.max(0, Math.min(1, VOLUME * getVolFor(id)));
+    a.src = warmed.currentSrc || warmed.src || "";
+    if (!a.src) return null;
+    return a;
+  };
+
   const resetStartSoundCacheFor = (rawId) => {
     const id = normalizeSoundId(rawId || "");
     if (!id) return;
@@ -520,6 +537,10 @@ const formatTenKeyBuf = (buf) => {
     if (cached) {
       try { cached.pause(); } catch {}
       startAudioCacheRef.current.delete(id);
+    }
+    if (startAudioLiveRef.current) {
+      try { startAudioLiveRef.current.pause(); } catch {}
+      startAudioLiveRef.current = null;
     }
     const blobUrl = startAudioBlobUrlRef.current.get(id);
     if (blobUrl) {
@@ -538,7 +559,7 @@ const formatTenKeyBuf = (buf) => {
     const last = lastStartAudioRef.current;
     if (!force && last.id === id && now - last.at < 300) return true;
 
-    const a = getStartSoundAudio(id);
+    const a = createStartSoundPlaybackAudio(id);
     if (!a) return false;
 
     const clearPendingIfSame = () => {
@@ -548,8 +569,7 @@ const formatTenKeyBuf = (buf) => {
     a.addEventListener("playing", clearPendingIfSame, { once: true });
 
     lastStartAudioRef.current = { id, at: now };
-    try { a.pause(); } catch {}
-    try { a.currentTime = 0; } catch {}
+    startAudioLiveRef.current = a;
 
     try {
       const p = a.play();
@@ -907,6 +927,8 @@ const formatTenKeyBuf = (buf) => {
     useEffect(() => () => { try { soundRef.current?.stopAll?.(); } catch {} }, []);
     useEffect(() => () => {
       try {
+        try { startAudioLiveRef.current?.pause?.(); } catch {}
+        startAudioLiveRef.current = null;
         startAudioCacheRef.current.forEach((a) => {
           try { a.pause(); } catch {}
         });
