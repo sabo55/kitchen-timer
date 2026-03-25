@@ -742,7 +742,15 @@ const formatTenKeyBuf = (buf) => {
   const releaseStartPressGuard = () => {
     const pending = pendingStartSoundRef.current;
     if (pending.id) {
-      playStartSoundDirect(pending.id, { force: true });
+      const live = startAudioLiveRef.current;
+      const alreadyPlaying =
+        !!live &&
+        !live.paused &&
+        Number.isFinite(live.currentTime) &&
+        live.currentTime > 0;
+      if (!alreadyPlaying) {
+        playStartSoundDirect(pending.id, { force: true });
+      }
       pendingStartSoundRef.current = { id: "", token: 0 };
     }
     suppressLongResetUntilReleaseRef.current = false;
