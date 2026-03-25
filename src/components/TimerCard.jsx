@@ -648,6 +648,7 @@ const formatTenKeyBuf = (buf) => {
   };
   const ignoreNextStartClickRef = useRef(false);
   const ignoreNextStartPointerClickRef = useRef(false);
+  const ignoreNextNotifyClickRef = useRef(false);
   const suppressLongResetUntilReleaseRef = useRef(false);
   const startPressReleaseCleanupRef = useRef(null);
   const longReset = useLongPress(() => {
@@ -745,6 +746,22 @@ const formatTenKeyBuf = (buf) => {
       const n = new Set(btnOn); n.add(i); setBtnOn(n);
       btnFiredRef.current.set(i, new Set());
     }
+  };
+  const onNotifyButtonPointerDown = (i, e) => {
+    if (e?.pointerType === "mouse" && e.button !== 0) return;
+    ignoreNextNotifyClickRef.current = true;
+    try { e?.preventDefault?.(); } catch {}
+    try { e?.stopPropagation?.(); } catch {}
+    toggleBtnRow(i);
+    try { window.getSelection()?.removeAllRanges(); } catch {}
+  };
+  const onNotifyButtonClick = (i) => {
+    if (ignoreNextNotifyClickRef.current) {
+      ignoreNextNotifyClickRef.current = false;
+      return;
+    }
+    toggleBtnRow(i);
+    try { window.getSelection()?.removeAllRanges(); } catch {}
   };
 
     useEffect(() => {
@@ -1111,7 +1128,8 @@ const formatTenKeyBuf = (buf) => {
                       <button
                         key={i}
                         onMouseDown={(e) => e.preventDefault()}        // ドラッグ選択の発火を抑止
-                        onClick={() => { toggleBtnRow(i); try { window.getSelection()?.removeAllRanges(); } catch {} }}
+                        onPointerDown={(e) => onNotifyButtonPointerDown(i, e)}
+                        onClick={() => onNotifyButtonClick(i)}
                         style={{
                           ...NOTIFY_BTN,
                           width: "100%",
