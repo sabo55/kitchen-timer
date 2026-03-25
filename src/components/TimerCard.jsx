@@ -414,7 +414,7 @@ const formatTenKeyBuf = (buf) => {
   const startAudioPrefetchRef = useRef(new Map());
   const startAudioLiveRef = useRef(null);
   const lastStartAudioRef = useRef({ id: "", at: 0 });
-  const pendingStartSoundRef = useRef({ id: "", token: 0 });
+  const pendingStartSoundRef = useRef({ id: "", token: 0, attempted: false });
   const [audioLibraryReadyTick, setAudioLibraryReadyTick] = useState(0);
   const assetWarmRef = useRef(new Map());
 
@@ -564,7 +564,7 @@ const formatTenKeyBuf = (buf) => {
 
     const clearPendingIfSame = () => {
       const pending = pendingStartSoundRef.current;
-      if (pending.id === id) pendingStartSoundRef.current = { id: "", token: 0 };
+      if (pending.id === id) pendingStartSoundRef.current = { id: "", token: 0, attempted: false };
     };
     a.addEventListener("playing", clearPendingIfSame, { once: true });
 
@@ -573,6 +573,8 @@ const formatTenKeyBuf = (buf) => {
 
     try {
       const p = a.play();
+      const pending = pendingStartSoundRef.current;
+      if (pending.id === id) pendingStartSoundRef.current = { ...pending, attempted: true };
       if (p && typeof p.catch === "function") {
         p.catch(() => {
           const lastPlayed = lastStartAudioRef.current;
@@ -713,7 +715,7 @@ const formatTenKeyBuf = (buf) => {
     if (e?.pointerType === "mouse" && e.button !== 0) return;
     ensureAudioCtx();
     const startId = normalizeSoundId(config?.modes?.[modeIdx]?.startSound || "");
-    pendingStartSoundRef.current = { id: startId, token: Date.now() };
+    pendingStartSoundRef.current = { id: startId, token: Date.now(), attempted: false };
     suppressLongResetUntilReleaseRef.current = true;
     try { startPressReleaseCleanupRef.current?.(); } catch {}
     if (typeof window !== "undefined") {
@@ -742,16 +744,10 @@ const formatTenKeyBuf = (buf) => {
   const releaseStartPressGuard = () => {
     const pending = pendingStartSoundRef.current;
     if (pending.id) {
-      const live = startAudioLiveRef.current;
-      const alreadyPlaying =
-        !!live &&
-        !live.paused &&
-        Number.isFinite(live.currentTime) &&
-        live.currentTime > 0;
-      if (!alreadyPlaying) {
+      if (!pending.attempted) {
         playStartSoundDirect(pending.id, { force: true });
       }
-      pendingStartSoundRef.current = { id: "", token: 0 };
+      pendingStartSoundRef.current = { id: "", token: 0, attempted: false };
     }
     suppressLongResetUntilReleaseRef.current = false;
     try { startPressReleaseCleanupRef.current?.(); } catch {}
@@ -785,7 +781,7 @@ const formatTenKeyBuf = (buf) => {
     }
     const startIdRaw = config.modes[modeIdx].startSound;
     const startId = normalizeSoundId(startIdRaw || "");
-    pendingStartSoundRef.current = { id: startId, token: Date.now() };
+    pendingStartSoundRef.current = { id: startId, token: Date.now(), attempted: false };
     playStartSoundDirect(startId);
     setRunning(true);
   };
